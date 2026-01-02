@@ -499,7 +499,7 @@ def feet_distance_xy_exp(
     reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
     return reward
 
-
+# 直接读取的世界坐标系下的足端的高度，不考虑地形因此可能不够准确
 def feet_height(
     env: ManagerBasedRLEnv,
     command_name: str,
@@ -519,7 +519,7 @@ def feet_height(
     reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
     return reward
 
-
+# 计算的足端相对于机体坐标系下的高度，更加准确，且不需要考虑地形高度
 def feet_height_body(
     env: ManagerBasedRLEnv,
     command_name: str,

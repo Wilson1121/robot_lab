@@ -49,11 +49,11 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.scene.robot = UNITREE_Go2Arm_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.scene.height_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.base_link_name
         self.scene.height_scanner_base.prim_path = "{ENV_REGEX_NS}/Robot/" + self.base_link_name
-        # 新添加的足端高度扫描器
-        self.scene.FL_foot_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.FOOT_LINK_NAMES[0]
-        self.scene.FR_foot_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.FOOT_LINK_NAMES[1]
-        self.scene.RL_foot_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.FOOT_LINK_NAMES[2]
-        self.scene.RR_foot_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.FOOT_LINK_NAMES[3]
+        # 新添加的足端高度扫描器（这里暂时不用，因为足端位置可由base位置经正运动学推动后直接从Sim里读取，增加新的扫描器会有多余的资源开销）
+        # self.scene.FL_foot_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.FOOT_LINK_NAMES[0]
+        # self.scene.FR_foot_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.FOOT_LINK_NAMES[1]
+        # self.scene.RL_foot_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.FOOT_LINK_NAMES[2]
+        # self.scene.RR_foot_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.FOOT_LINK_NAMES[3]
 
         # ------------------------------Observations------------------------------
         self.observations.policy.base_lin_vel.scale = 2.0
@@ -106,7 +106,7 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.rewards.lin_vel_z_l2.weight = -2.0         # 惩罚：垂直速度过大
         self.rewards.ang_vel_xy_l2.weight = -0.05       # 惩罚：避免roll/pitch角速度过大
         self.rewards.flat_orientation_l2.weight = 0     # 惩罚：基座倾斜 --- 关闭 ---
-        self.rewards.base_height_l2.weight = 0          # 惩罚：基座高度偏离目标高度 --- 关闭 ---
+        self.rewards.base_height_l2.weight = 0          # 惩罚：基座高度偏离目标高度（考虑地形高度） --- 关闭 ---
         self.rewards.base_height_l2.params["target_height"] = 0.33
         self.rewards.base_height_l2.params["asset_cfg"].body_names = [self.base_link_name]
         self.rewards.body_lin_acc_l2.weight = 0         # 惩罚：基座线加速度过大 --- 关闭 ---
@@ -142,7 +142,7 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.rewards.track_ang_vel_z_exp.weight = 1.5   # 奖励：角速度z跟踪
 
         # Others
-        self.rewards.feet_air_time.weight = 0.1             # 奖励：足端离地时间（鼓励跳跃）
+        self.rewards.feet_air_time.weight = 0.1             # 奖励：足端离地时间
         self.rewards.feet_air_time.params["threshold"] = 0.5
         self.rewards.feet_air_time.params["sensor_cfg"].body_names = [self.foot_link_name]
         self.rewards.feet_air_time_variance.weight = -1.0   # 惩罚：足端离地时间差异过大（鼓励均匀步态）
@@ -156,10 +156,10 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.rewards.feet_slide.weight = -0.1               # 惩罚：足端滑动    
         self.rewards.feet_slide.params["sensor_cfg"].body_names = [self.foot_link_name]
         self.rewards.feet_slide.params["asset_cfg"].body_names = [self.foot_link_name]
-        self.rewards.feet_height.weight = 0                 # 奖励：足端高度接近目标觉得高度 --- 关闭 ---
+        self.rewards.feet_height.weight = 0                 # 奖励：足端高度接近目标绝对高度 --- 关闭 ---
         self.rewards.feet_height.params["target_height"] = 0.05
         self.rewards.feet_height.params["asset_cfg"].body_names = [self.foot_link_name]
-        self.rewards.feet_height_body.weight = -5.0         # 惩罚：足端相对于基座高度过低（不抬腿）
+        self.rewards.feet_height_body.weight = -5.0         # 惩罚：足端相对于基座高度过低（不希望不抬腿）
         self.rewards.feet_height_body.params["target_height"] = -0.2
         self.rewards.feet_height_body.params["asset_cfg"].body_names = [self.foot_link_name]
         self.rewards.feet_gait.weight = 0.5                 # 奖励：足端步态同步
