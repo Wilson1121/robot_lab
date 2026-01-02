@@ -27,7 +27,8 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import robot_lab.tasks.manager_based.locomotion.velocity.mdp as mdp
-
+# 添加实验室的包
+import isaaclab_nhb.tasks.mdp_nhb as mdp_nhb
 ##
 # Pre-defined configs
 ##
@@ -83,6 +84,40 @@ class MySceneCfg(InteractiveSceneCfg):
         debug_vis=False,
         mesh_prim_paths=["/World/ground"],
     )
+    # 添加四个足端高度扫描传感器
+    FL_foot_scanner = RayCasterCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/FL_foot",
+            offset=RayCasterCfg.OffsetCfg(pos=(0.05, 0.0, 20.0)),
+            ray_alignment="yaw",
+            pattern_cfg=patterns.GridPatternCfg(resolution=0.05, size=(0.2, 0.05)),
+            debug_vis=False,
+            mesh_prim_paths=["/World/ground"],
+        )
+    FR_foot_scanner = RayCasterCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/FR_foot",
+            offset=RayCasterCfg.OffsetCfg(pos=(0.05, 0.0, 20.0)),
+            ray_alignment="yaw",
+            pattern_cfg=patterns.GridPatternCfg(resolution=0.05, size=(0.2, 0.05)),
+            debug_vis=False,
+            mesh_prim_paths=["/World/ground"],
+        )
+    RL_foot_scanner = RayCasterCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/RL_foot",
+            offset=RayCasterCfg.OffsetCfg(pos=(0.05, 0.0, 20.0)),
+            ray_alignment="yaw",
+            pattern_cfg=patterns.GridPatternCfg(resolution=0.05, size=(0.2, 0.05)),
+            debug_vis=False,
+            mesh_prim_paths=["/World/ground"],
+        )
+    RR_foot_scanner = RayCasterCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/RR_foot",
+            offset=RayCasterCfg.OffsetCfg(pos=(0.05, 0.0, 20.0)),
+            ray_alignment="yaw",
+            pattern_cfg=patterns.GridPatternCfg(resolution=0.05, size=(0.2, 0.05)),
+            debug_vis=False,
+            mesh_prim_paths=["/World/ground"],
+        )
+    
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
     # lights
     sky_light = AssetBaseCfg(
@@ -113,6 +148,20 @@ class CommandsCfg:
         debug_vis=True,
         ranges=mdp.UniformThresholdVelocityCommandCfg.Ranges(
             lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
+        ),
+    )
+
+    # 四足步态命令（用于步态奖励与观测）
+    # 注意：QuadrupedGaitCommand 的参考足为 LF（左前），Go2Z1 对应为 "FL_foot"。
+    # 这里默认固定为 trot：LF+RB 同相，RF+LB 同相（相位差 0.5）。
+    gait_command = mdp_nhb.QuadrupedGaitCommandCfg(
+        resampling_time_range=(2.0, 4.0),
+        ranges=mdp_nhb.QuadrupedGaitCommandCfg.Ranges(
+            stance_rate=(0.70, 0.70),
+            rf_offset=(0.50, 0.50),
+            lb_offset=(0.50, 0.50),
+            rb_offset=(0.00, 0.00),
+            gait_frequency=(1.50, 1.50),
         ),
     )
 
@@ -185,9 +234,14 @@ class ObservationsCfg:
             clip=(-1.0, 1.0),
             scale=1.0,
         )
+        # 步态命令
+        gait_commands = ObsTerm(
+            func=mdp.generated_commands,
+            params={"command_name": "gait_command"},
+        )
 
         def __post_init__(self):
-            self.enable_corruption = True
+            self.enable_corruption = True   # policy 加噪声，有一些观测项不加噪声如 velocity_commands、gait_commands等
             self.concatenate_terms = True
 
     @configclass
@@ -195,50 +249,64 @@ class ObservationsCfg:
         """Observations for critic group."""
 
         # observation terms (order preserved)
+        # 基座线速度
         base_lin_vel = ObsTerm(
             func=mdp.base_lin_vel,
             clip=(-100.0, 100.0),
             scale=1.0,
         )
+        # 基座角速度
         base_ang_vel = ObsTerm(
             func=mdp.base_ang_vel,
             clip=(-100.0, 100.0),
             scale=1.0,
         )
+        # 重力投影
         projected_gravity = ObsTerm(
             func=mdp.projected_gravity,
             clip=(-100.0, 100.0),
             scale=1.0,
         )
+        # 速度命令
         velocity_commands = ObsTerm(
             func=mdp.generated_commands,
             params={"command_name": "base_velocity"},
             clip=(-100.0, 100.0),
             scale=1.0,
         )
+        # 关节位置
         joint_pos = ObsTerm(
             func=mdp.joint_pos_rel,
             params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*", preserve_order=True)},
             clip=(-100.0, 100.0),
             scale=1.0,
         )
+        # 关节速度
         joint_vel = ObsTerm(
             func=mdp.joint_vel_rel,
             params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*", preserve_order=True)},
             clip=(-100.0, 100.0),
             scale=1.0,
         )
+        # 上一步动作
         actions = ObsTerm(
             func=mdp.last_action,
             clip=(-100.0, 100.0),
             scale=1.0,
         )
+        # base高度扫描，这里近启用粗糙的观测，精确的height_scan_base用于reward计算
         height_scan = ObsTerm(
             func=mdp.height_scan,
             params={"sensor_cfg": SceneEntityCfg("height_scanner")},
             clip=(-1.0, 1.0),
             scale=1.0,
         )
+        # 步态命令
+        gait_commands = ObsTerm(
+            func=mdp.generated_commands,
+            params={"command_name": "gait_command"},
+        )
+
         # joint_effort = ObsTerm(
         #     func=mdp.joint_effort,
         #     clip=(-100, 100),
@@ -246,7 +314,7 @@ class ObservationsCfg:
         # )
 
         def __post_init__(self):
-            self.enable_corruption = False
+            self.enable_corruption = False  # critic 不加噪声
             self.concatenate_terms = True
 
     # observation groups
@@ -259,6 +327,7 @@ class EventCfg:
     """Configuration for events."""
 
     # startup
+    # 机械材质参数随机化，如足端摩擦系数等
     randomize_rigid_body_material = EventTerm(
         func=mdp.randomize_rigid_body_material,
         mode="startup",
@@ -270,7 +339,7 @@ class EventCfg:
             "num_buckets": 64,
         },
     )
-
+    # 基座质量随机化
     randomize_rigid_body_mass_base = EventTerm(
         func=mdp.randomize_rigid_body_mass,
         mode="startup",
@@ -281,7 +350,7 @@ class EventCfg:
             "recompute_inertia": True,
         },
     )
-
+    # 其他部分质量随机化
     randomize_rigid_body_mass_others = EventTerm(
         func=mdp.randomize_rigid_body_mass,
         mode="startup",
@@ -303,7 +372,7 @@ class EventCfg:
     #         "operation": "scale",
     #     },
     # )
-
+    # 质心位置随机化
     randomize_com_positions = EventTerm(
         func=mdp.randomize_rigid_body_com,
         mode="startup",
