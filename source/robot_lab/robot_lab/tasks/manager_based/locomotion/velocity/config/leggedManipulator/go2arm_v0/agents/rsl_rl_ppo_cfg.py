@@ -13,6 +13,7 @@ class UnitreeGo2ArmRoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 20000
     # 保存模型的间隔。值越小磁盘占用越多，值越大可能错过最优模型
     save_interval = 100
+    # 实验名称。用于日志和模型保存的标识
     experiment_name = "unitree_go2arm_rough"
     
     policy = RslRlPpoActorCriticCfg(
