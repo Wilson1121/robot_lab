@@ -22,7 +22,8 @@ UNITREE_Go2Arm_CFG = ArticulationCfg(
         fix_base=False,
         merge_fixed_joints=True,
         replace_cylinders_with_capsules=False,
-        asset_path=f"{ISAACLAB_ASSETS_DATA_DIR}/Robots/unitree/Go2Arm_description/urdf/go2_piper_description.urdf",
+        # Local asset only provides the mujoco-flavored URDF.
+        asset_path=f"{ISAACLAB_ASSETS_DATA_DIR}/Robots/unitree/Go2Arm_description/urdf/go2_piper_description_mjc.urdf",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,

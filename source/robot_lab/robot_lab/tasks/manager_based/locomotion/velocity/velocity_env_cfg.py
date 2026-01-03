@@ -28,7 +28,7 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import robot_lab.tasks.manager_based.locomotion.velocity.mdp as mdp
 # 添加实验室的包
-import isaaclab_nhb.tasks.mdp_nhb as mdp_nhb
+# import isaaclab_nhb.tasks.mdp_nhb as mdp_nhb
 ##
 # Pre-defined configs
 ##
@@ -154,16 +154,16 @@ class CommandsCfg:
     # 四足步态命令（用于步态奖励与观测）
     # 注意：QuadrupedGaitCommand 的参考足为 LF（左前），Go2Z1 对应为 "FL_foot"。
     # 这里默认固定为 trot：LF+RB 同相，RF+LB 同相（相位差 0.5）。
-    gait_command = mdp_nhb.QuadrupedGaitCommandCfg(
-        resampling_time_range=(2.0, 4.0),
-        ranges=mdp_nhb.QuadrupedGaitCommandCfg.Ranges(
-            stance_rate=(0.70, 0.70),
-            rf_offset=(0.50, 0.50),
-            lb_offset=(0.50, 0.50),
-            rb_offset=(0.00, 0.00),
-            gait_frequency=(1.50, 1.50),
-        ),
-    )
+    # gait_command = mdp_nhb.QuadrupedGaitCommandCfg(
+    #     resampling_time_range=(2.0, 4.0),
+    #     ranges=mdp_nhb.QuadrupedGaitCommandCfg.Ranges(
+    #         stance_rate=(0.70, 0.70),
+    #         rf_offset=(0.50, 0.50),
+    #         lb_offset=(0.50, 0.50),
+    #         rb_offset=(0.00, 0.00),
+    #         gait_frequency=(1.50, 1.50),
+    #     ),
+    # )
 
 
 @configclass
@@ -234,11 +234,11 @@ class ObservationsCfg:
             clip=(-1.0, 1.0),
             scale=1.0,
         )
-        # 步态命令
-        gait_commands = ObsTerm(
-            func=mdp.generated_commands,
-            params={"command_name": "gait_command"},
-        )
+        # # 步态命令
+        # gait_commands = ObsTerm(
+        #     func=mdp.generated_commands,
+        #     params={"command_name": "gait_command"},
+        # )
 
         def __post_init__(self):
             self.enable_corruption = True   # policy 加噪声，有一些观测项不加噪声如 velocity_commands、gait_commands等
@@ -301,11 +301,11 @@ class ObservationsCfg:
             clip=(-1.0, 1.0),
             scale=1.0,
         )
-        # 步态命令
-        gait_commands = ObsTerm(
-            func=mdp.generated_commands,
-            params={"command_name": "gait_command"},
-        )
+        # # 步态命令
+        # gait_commands = ObsTerm(
+        #     func=mdp.generated_commands,
+        #     params={"command_name": "gait_command"},
+        # )
 
         # joint_effort = ObsTerm(
         #     func=mdp.joint_effort,
