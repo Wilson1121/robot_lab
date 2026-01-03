@@ -7,7 +7,7 @@ from .rough_env_cfg import UnitreeGo2ArmRoughEnvCfg
 
 
 @configclass
-class UnitreeGo2FlatEnvCfg(UnitreeGo2ArmRoughEnvCfg):
+class UnitreeGo2ArmFlatEnvCfg(UnitreeGo2ArmRoughEnvCfg):
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
@@ -25,5 +25,5 @@ class UnitreeGo2FlatEnvCfg(UnitreeGo2ArmRoughEnvCfg):
         self.curriculum.terrain_levels = None
 
         # If the weight of rewards is 0, set rewards to None
-        if self.__class__.__name__ == "UnitreeGo2FlatEnvCfg":
+        if self.__class__.__name__ == "UnitreeGo2ArmFlatEnvCfg":
             self.disable_zero_weight_rewards()
