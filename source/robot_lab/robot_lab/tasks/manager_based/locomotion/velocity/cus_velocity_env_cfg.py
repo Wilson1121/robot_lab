@@ -138,6 +138,7 @@ class MySceneCfg(InteractiveSceneCfg):
 class CommandsCfg:
     """Command specifications for the MDP."""
 
+    # 基座速度命令
     base_velocity = mdp.UniformThresholdVelocityCommandCfg(
         asset_name="robot",
         resampling_time_range=(10.0, 10.0),
@@ -149,6 +150,26 @@ class CommandsCfg:
         ranges=mdp.UniformThresholdVelocityCommandCfg.Ranges(
             lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
         ),
+    )
+    # 末端执行器（EE）轨迹 + twist 命令
+    # 注意：ee_body_name / torso_body_name / shoulder_body_name 需与你的机器人 body_names 一致
+    ee_twist = mdp.EndEffectorTwistTrajectoryCommandCfg(
+        asset_name="robot",
+        resampling_time_range=(10.0, 10.0),   # 轨迹采用持续时间范围
+        ee_body_name="link6",
+        torso_body_name="base",
+        shoulder_body_name="link2",
+        reject_cuboid=(-0.25, 0.25, -0.16, 0.16, -0.07, 0.19),  # torso和hip的最大外包络长方体（估计值）
+        trajectory_duration_range=(3.0, 5.0),   # 轨迹时间范围
+        local_trajectory_probability=0.5,
+    )
+    # 足端摆动高度命令（论文 Eq. (5)）
+    feet_swing_height = mdp.DesiredFeetSwingHeightCommandCfg(
+        resampling_time_range=(4.0, 4.0),
+        max_height=0.12,
+        gait_frequency=1.5,
+        phase_offsets=(0.0, 0.5, 0.5, 0.0),  # [FL, FR, RL, RR]
+        clip_to_positive=True,
     )
 
     # 四足步态命令（用于步态奖励与观测）
@@ -208,6 +229,13 @@ class ObservationsCfg:
             clip=(-100.0, 100.0),
             scale=1.0,
         )
+        # # 足端摆动高度命令（[FL, FR, RL, RR]）
+        # feet_swing_height_command = ObsTerm(
+        #     func=mdp.generated_commands,
+        #     params={"command_name": "feet_swing_height"},
+        #     clip=(0.0, 1.0),
+        #     scale=1.0,
+        # )
         joint_pos = ObsTerm(
             func=mdp.joint_pos_rel,
             params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*", preserve_order=True)},
@@ -260,7 +288,8 @@ class ObservationsCfg:
             history_length=4,          # 存储过去4帧
             flatten_history_dim=True,  # 将历史维度展平为2D (num_envs, joint_num * 4)
         )
-#***********************************************************************************************************************************
+
+
         # Proprioception_term: 重力投影, 3 Dim
         projected_gravity = ObsTerm(
             func=mdp.projected_gravity,
@@ -293,7 +322,8 @@ class ObservationsCfg:
             clip=(-100.0, 100.0),
             scale=1.0,
         )
-#***********************************************************************************************************************************
+
+
         # Privileged info term: Feet contact state, 4 Dim
         # Feet contact state: 足端接触状态（二值），4 Dim（四足机器人）
         # 需要在子类中配置 body_names，如 ".*_foot"
@@ -326,6 +356,7 @@ class ObservationsCfg:
             clip=(0.0, 1.0),
             scale=1.0,
         )
+
         # Privileged info term: Base external wrench, 6 Dim
         # 基座外部力/力矩（域随机化量），由 randomize_apply_external_force_torque 设置
         # 需要在子类中配置 body_names 为基座名称
@@ -335,6 +366,7 @@ class ObservationsCfg:
             clip=(-100.0, 100.0),
             scale=1.0,
         )
+
         # Privileged info term: Base external push velocity, 6 Dim
         # 基座外部推动速度（域随机化量），由 push_by_setting_velocity 设置
         # 返回当前根速度（包含推动扰动）
@@ -345,6 +377,7 @@ class ObservationsCfg:
             clip=(-10.0, 10.0),
             scale=1.0,
         )
+
         # Privileged info term: Base mass disturbance, 1 Dim
         # 基座质量扰动（域随机化量），由 randomize_rigid_body_mass 设置
         # 返回当前质量与默认质量的差值
@@ -355,6 +388,7 @@ class ObservationsCfg:
             clip=(-10.0, 10.0),
             scale=1.0,
         )
+
         # Privileged info term: End-effector external wrench, 6 Dim
         # 末端执行器外部力/力矩（域随机化量），由 randomize_apply_external_force_torque 设置
         # 需要在子类中配置 body_names 为末端执行器名称
@@ -364,6 +398,7 @@ class ObservationsCfg:
             clip=(-100.0, 100.0),
             scale=1.0,
         )
+
         # Privileged info term: End-effector mass disturbance, 1 Dim
         # 末端执行器质量扰动（域随机化量），由 randomize_rigid_body_mass 设置
         # 返回当前质量与默认质量的差值
@@ -374,14 +409,41 @@ class ObservationsCfg:
             clip=(-10.0, 10.0),
             scale=1.0,
         )
-#***********************************************************************************************************************************
+
+
         # Previous_action_term: 上一步动作, 18 Dim
         actions = ObsTerm(
             func=mdp.last_action,
             clip=(-100.0, 100.0),
             scale=1.0,
         )
-
+#***********************************************************************************************************************************
+# 处理command观测项
+        # Command term: Base velocity command, 3 Dim
+        # 基座速度命令（相对于机器人坐标系 body frame）
+        # [0]: lin_vel_x 前向线速度 (m/s)
+        # [1]: lin_vel_y 侧向线速度 (m/s)
+        # [2]: ang_vel_z 偏航角速度 (rad/s)
+        base_velocity_command = ObsTerm(
+            func=mdp.generated_commands,
+            params={"command_name": "base_velocity"},
+            clip=(-10.0, 10.0),
+            scale=1.0,
+        )
+        # Command term: End-effector twist + goal pose command, 13 Dim
+        ee_twist_command = ObsTerm(
+            func=mdp.generated_commands,
+            params={"command_name": "ee_twist"},
+            clip=(-10.0, 10.0),
+            scale=1.0,
+        )
+        # Command term: Feet swing height command, 4 Dim
+        feet_swing_height_command = ObsTerm(
+            func=mdp.generated_commands,
+            params={"command_name": "feet_swing_height"},
+            clip=(0.0, 1.0),
+            scale=1.0,
+        )
 
 
 
