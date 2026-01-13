@@ -23,7 +23,7 @@ UNITREE_Go2Arm_CFG = ArticulationCfg(
         merge_fixed_joints=True,
         replace_cylinders_with_capsules=False,
         # Local asset only provides the mujoco-flavored URDF.
-        asset_path=f"{ISAACLAB_ASSETS_DATA_DIR}/Robots/unitree/Go2Arm_description/urdf/go2_piper_description_mjc.urdf",
+        asset_path=f"{ISAACLAB_ASSETS_DATA_DIR}/Robots/unitree/Go2Arm_description/urdf/go2_piper_description_mjc_NoGripper.urdf",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,
@@ -44,7 +44,7 @@ UNITREE_Go2Arm_CFG = ArticulationCfg(
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 0.4),
+        pos=(0.0, 0.0, 0.4),    # root position
         joint_pos={
             ".*_hip_joint": 0.0,
             ".*_thigh_joint": 1.0,
@@ -73,8 +73,8 @@ UNITREE_Go2Arm_CFG = ArticulationCfg(
             joint_names_expr=[r"joint[1-6]"],
             effort_limit=50,
             velocity_limit=28,
-            stiffness=0.0,
-            damping=30,
+            stiffness=30.0,
+            damping=1.5,
             friction=0.2,
             min_delay=0,
             max_delay=0,
