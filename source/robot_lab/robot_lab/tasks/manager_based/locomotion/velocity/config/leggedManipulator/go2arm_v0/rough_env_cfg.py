@@ -5,7 +5,7 @@ from isaaclab.utils import configclass
 
 # from isaaclab_nhb.terrain.config.rough import ROUGH_TERRAINS_SIMPLE_CFG
 
-from robot_lab.tasks.manager_based.locomotion.velocity.velocity_env_cfg import LocomotionVelocityRoughEnvCfg
+from robot_lab.tasks.manager_based.locomotion.velocity.cus_velocity_env_cfg import LocomotionVelocityRoughEnvCfg
 
 # from isaaclab.sensors import RayCasterCfg, patterns
 
@@ -22,24 +22,10 @@ from robot_lab.assets.unitree import UNITREE_Go2Arm_CFG  # isort: skip
 @configclass
 class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
     base_link_name = "base"
-    foot_link_name = ".*_foot"
-    # fmt: off
-    joint_names = [
-        # FR
-        "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
-        # FL
-        "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
-        # RR
-        "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
-        # RL
-        "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint",
-        # Arm
-        "joint1", "joint2", "joint3", "joint4", "joint5", "joint6",
-    ]
-    FOOT_LINK_NAMES: list[str] = [
-    "FL_foot", "FR_foot", "RL_foot", "RR_foot",
-]
-    # fmt: on
+    foot_link_name: list[str] = ["FL_foot", "FR_foot", "RL_foot", "RR_foot"]
+    
+    reward_group_terms: dict[str, list[str]] | None = None
+    reward_group_strict: bool = True
 
     def __post_init__(self):
         # post init of parent
@@ -50,26 +36,81 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.scene.height_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.base_link_name
         self.scene.height_scanner_base.prim_path = "{ENV_REGEX_NS}/Robot/" + self.base_link_name
         # 新添加的足端高度扫描器（这里暂时不用，因为足端位置可由base位置经正运动学推动后直接从Sim里读取，增加新的扫描器会有多余的资源开销）
-        # self.scene.FL_foot_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.FOOT_LINK_NAMES[0]
-        # self.scene.FR_foot_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.FOOT_LINK_NAMES[1]
-        # self.scene.RL_foot_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.FOOT_LINK_NAMES[2]
-        # self.scene.RR_foot_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.FOOT_LINK_NAMES[3]
+        self.scene.FL_foot_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.foot_link_name[0]
+        self.scene.FR_foot_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.foot_link_name[1]
+        self.scene.RL_foot_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.foot_link_name[2]
+        self.scene.RR_foot_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.foot_link_name[3]
 
         # ------------------------------Observations------------------------------
-        self.observations.policy.base_lin_vel.scale = 2.0
-        self.observations.policy.base_ang_vel.scale = 0.25
+
+        # Policy observations scale and clip configuration
+        # 按照 cus_velocity_env_cfg.py 中 obs 配置的顺序
+        self.observations.policy.joint_pos_history.scale = 1.0
+        self.observations.policy.joint_pos_history.clip = (-3.14, 3.14)
+        self.observations.policy.projected_gravity.scale = 1.0
+        self.observations.policy.projected_gravity.clip = (-1.0, 1.0)
+        self.observations.policy.base_lin_vel.scale = 1.0
+        self.observations.policy.base_lin_vel.clip = (-5.0, 5.0)
+        self.observations.policy.base_ang_vel.scale = 1.0
+        self.observations.policy.base_ang_vel.clip = (-5.0, 5.0)
         self.observations.policy.joint_pos.scale = 1.0
-        self.observations.policy.joint_vel.scale = 0.05
-        self.observations.policy.base_lin_vel = None    # Policy不观测线速度
-        self.observations.policy.height_scan = None   # Policy不观测高度扫描
-        self.observations.policy.joint_pos.params["asset_cfg"].joint_names = self.joint_names
-        self.observations.policy.joint_vel.params["asset_cfg"].joint_names = self.joint_names
+        self.observations.policy.joint_pos.clip = (-3.14, 3.14)
+        self.observations.policy.joint_vel.scale = 1.0
+        self.observations.policy.joint_vel.clip = (-20.0, 20.0)
+        self.observations.policy.actions.scale = 1.0
+        self.observations.policy.actions.clip = (-1.0, 1.0)
+        self.observations.policy.base_velocity_command.scale = 1.0
+        self.observations.policy.base_velocity_command.clip = (-1.5, 1.5)
+        self.observations.policy.ee_twist_command.scale = 1.0
+        self.observations.policy.ee_twist_command.clip = (-5.0, 5.0)
+        self.observations.policy.feet_swing_height_command.scale = 1.0
+        self.observations.policy.feet_swing_height_command.clip = (0.0, 0.2)
+
+        # Critic observations scale and clip configuration
+        self.observations.critic.joint_pos_history.scale = 1.0
+        self.observations.critic.joint_pos_history.clip = (-3.14, 3.14)
+        self.observations.critic.projected_gravity.scale = 1.0
+        self.observations.critic.projected_gravity.clip = (-1.0, 1.0)
+        self.observations.critic.base_lin_vel.scale = 1.0
+        self.observations.critic.base_lin_vel.clip = (-5.0, 5.0)
+        self.observations.critic.base_ang_vel.scale = 1.0
+        self.observations.critic.base_ang_vel.clip = (-5.0, 5.0)
+        self.observations.critic.joint_pos.scale = 1.0
+        self.observations.critic.joint_pos.clip = (-3.14, 3.14)
+        self.observations.critic.joint_vel.scale = 1.0
+        self.observations.critic.joint_vel.clip = (-20.0, 20.0)
+        self.observations.critic.feet_contact_state.scale = 1.0
+        self.observations.critic.feet_contact_state.clip = (-1.0, 1.0)
+        self.observations.critic.static_friction.scale = 1.0
+        self.observations.critic.static_friction.clip = (0.0, 2.0)
+        self.observations.critic.feet_air_time.scale = 1.0
+        self.observations.critic.feet_air_time.clip = (0.0, 2.0)
+        self.observations.critic.base_external_wrench.scale = 1.0
+        self.observations.critic.base_external_wrench.clip = (-100.0, 100.0)
+        self.observations.critic.base_external_push_velocity.scale = 1.0
+        self.observations.critic.base_external_push_velocity.clip = (-10.0, 10.0)
+        self.observations.critic.base_mass_disturbance.scale = 1.0
+        self.observations.critic.base_mass_disturbance.clip = (-10.0, 10.0)
+        self.observations.critic.ee_external_wrench.scale = 1.0
+        self.observations.critic.ee_external_wrench.clip = (-100.0, 100.0)
+        self.observations.critic.ee_mass_disturbance.scale = 1.0
+        self.observations.critic.ee_mass_disturbance.clip = (-10.0, 10.0)
+        self.observations.critic.actions.scale = 1.0
+        self.observations.critic.actions.clip = (-1.0, 1.0)
+        self.observations.critic.base_velocity_command.scale = 1.0
+        self.observations.critic.base_velocity_command.clip = (-1.5, 1.5)
+        self.observations.critic.ee_twist_command.scale = 1.0
+        self.observations.critic.ee_twist_command.clip = (-5.0, 5.0)
+        self.observations.critic.feet_swing_height_command.scale = 1.0
+        self.observations.critic.feet_swing_height_command.clip = (0.0, 0.2)
+        
 
         # ------------------------------Actions------------------------------
         # reduce action scale
-        self.actions.joint_pos.scale = {".*_hip_joint": 0.125, "^(?!.*_hip_joint).*": 0.25}
-        self.actions.joint_pos.clip = {".*": (-100.0, 100.0)}
-        self.actions.joint_pos.joint_names = self.joint_names
+        # self.actions.joint_pos.scale = {".*_hip_joint": 0.125, "^(?!.*_hip_joint).*": 0.25}
+        self.actions.legs.scale = 0.05
+        self.actions.arm.scale = 0.05
+        
 
         # ------------------------------Events------------------------------
         self.events.randomize_reset_base.params = {
@@ -99,76 +140,65 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
 
         # ------------------------------Rewards------------------------------
         # 父类LocomotionVelocityRoughEnvCfg里已经定义了一些reward term，默认权重为0，这里修改其权重和参数
-        # General
-        self.rewards.is_terminated.weight = 0
-
-        # Root penalties
-        self.rewards.lin_vel_z_l2.weight = -2.0         # 惩罚：垂直速度过大
-        self.rewards.ang_vel_xy_l2.weight = -0.05       # 惩罚：避免roll/pitch角速度过大
-        self.rewards.flat_orientation_l2.weight = 0     # 惩罚：基座倾斜 --- 关闭 ---
-        self.rewards.base_height_l2.weight = 0          # 惩罚：基座高度偏离目标高度（考虑地形高度） --- 关闭 ---
-        self.rewards.base_height_l2.params["target_height"] = 0.33
-        self.rewards.base_height_l2.params["asset_cfg"].body_names = [self.base_link_name]
-        self.rewards.body_lin_acc_l2.weight = 0         # 惩罚：基座线加速度过大 --- 关闭 ---
-        self.rewards.body_lin_acc_l2.params["asset_cfg"].body_names = [self.base_link_name]
-
-        # Joint penalties
-        self.rewards.joint_torques_l2.weight = -2.5e-5  # 惩罚：关节力矩过大
-        self.rewards.joint_vel_l2.weight = 0            # 惩罚：关节速度过大 --- 关闭 ---
-        self.rewards.joint_acc_l2.weight = -2.5e-7      # 惩罚：关节加速度过大（平滑）
-        # self.rewards.create_joint_deviation_l1_rewterm("joint_deviation_hip_l1", -0.2, [".*_hip_joint"])  # 惩罚：髋关节位置偏离初始位置
-        self.rewards.joint_pos_limits.weight = -5.0     # 惩罚：关节位置接近软限位
-        self.rewards.joint_vel_limits.weight = 0        # 惩罚：关节速度接近极限 --- 关闭 ---
-        self.rewards.joint_power.weight = -2e-5         # 惩罚：关节功率过大（力矩*速度）
-        self.rewards.stand_still.weight = -2.0          # 惩罚：与初始站立姿势偏离过大
-        self.rewards.joint_pos_penalty.weight = -1.0    # 惩罚：关节位置偏离初始位置
-        self.rewards.joint_mirror.weight = -0.05        # 惩罚：左右关节动作不对称
-        self.rewards.joint_mirror.params["mirror_joints"] = [
-            ["FR_(hip|thigh|calf).*", "RL_(hip|thigh|calf).*"],
-            ["FL_(hip|thigh|calf).*", "RR_(hip|thigh|calf).*"],
-        ]
-
-        # Action penalties
-        self.rewards.action_rate_l2.weight = -0.01      # 惩罚：动作变化过大（平滑）
-
-        # Contact sensor
-        self.rewards.undesired_contacts.weight = -1.0   # 惩罚：非足端刚体与地面接触（没惩罚身体间碰撞）
-        self.rewards.undesired_contacts.params["sensor_cfg"].body_names = [f"^(?!.*{self.foot_link_name}).*"]
-        self.rewards.contact_forces.weight = -1.5e-4    # 惩罚：足端接触力过大
-        self.rewards.contact_forces.params["sensor_cfg"].body_names = [self.foot_link_name]
-
-        # Velocity-tracking rewards
-        self.rewards.track_lin_vel_xy_exp.weight = 3.0  # 奖励：线速度xy跟踪
-        self.rewards.track_ang_vel_z_exp.weight = 1.5   # 奖励：角速度z跟踪
-
-        # Others
-        self.rewards.feet_air_time.weight = 0.1             # 奖励：足端离地时间
-        self.rewards.feet_air_time.params["threshold"] = 0.5
-        self.rewards.feet_air_time.params["sensor_cfg"].body_names = [self.foot_link_name]
-        self.rewards.feet_air_time_variance.weight = -1.0   # 惩罚：足端离地时间差异过大（鼓励均匀步态）
-        self.rewards.feet_air_time_variance.params["sensor_cfg"].body_names = [self.foot_link_name]
-        self.rewards.feet_contact.weight = 0                # 奖励：足端接地 --- 关闭 ---
-        self.rewards.feet_contact.params["sensor_cfg"].body_names = [self.foot_link_name]
-        self.rewards.feet_contact_without_cmd.weight = 0.1  # 奖励：无命令时足端接地
-        self.rewards.feet_contact_without_cmd.params["sensor_cfg"].body_names = [self.foot_link_name]
-        self.rewards.feet_stumble.weight = 0                # 惩罚：足端绊倒（踩到陡坡或踢到墙壁） --- 关闭 ---
-        self.rewards.feet_stumble.params["sensor_cfg"].body_names = [self.foot_link_name]
-        self.rewards.feet_slide.weight = -0.1               # 惩罚：足端滑动    
-        self.rewards.feet_slide.params["sensor_cfg"].body_names = [self.foot_link_name]
-        self.rewards.feet_slide.params["asset_cfg"].body_names = [self.foot_link_name]
-        self.rewards.feet_height.weight = 0                 # 奖励：足端高度接近目标绝对高度 --- 关闭 ---
-        self.rewards.feet_height.params["target_height"] = 0.05
-        self.rewards.feet_height.params["asset_cfg"].body_names = [self.foot_link_name]
-        self.rewards.feet_height_body.weight = -5.0         # 惩罚：足端相对于基座高度过低（不希望不抬腿）
-        self.rewards.feet_height_body.params["target_height"] = -0.2
-        self.rewards.feet_height_body.params["asset_cfg"].body_names = [self.foot_link_name]
-        self.rewards.feet_gait.weight = 0.5                 # 奖励：足端步态同步
-        self.rewards.feet_gait.params["synced_feet_pair_names"] = (("FL_foot", "RR_foot"), ("FR_foot", "RL_foot"))
-        self.rewards.upward.weight = 1.0
+        # loco
+        self.rewards.base_linear_velocity.weight = 2.0
+        self.rewards.base_angular_velocity.weight = 2.0
+        self.rewards.torso_height.weight = 0.5
+        self.rewards.base_roll_pitch_angles.weight = 0.1
+        self.rewards.torso_linear_velocity.weight = 0.5
+        self.rewards.torso_roll_pitch_velocities.weight = 2.5
+        self.rewards.is_alive.weight = 0.05
+        self.rewards.is_terminated.weight = -400.0
+        self.rewards.undesired_robot_contacts.weight = -1.0
+        self.rewards.robot_action_rate.weight = -0.001
+        self.rewards.robot_joint_torque.weight = 1e-5
+        self.rewards.robot_joint_velocity.weight = 1e-4
+        # mani
+        self.rewards.ee_position.weight = 5.0
+        self.rewards.ee_orientation.weight = 4.0
+        self.rewards.undesired_arm_contacts.weight = -1.0
+        self.rewards.arm_action_rate.weight = 0.1
+        self.rewards.arm_joint_torques.weight = 1e-5
+        self.rewards.arm_joint_velocities.weight = 1e-4
+        # contact
+        self.rewards.feet_contact_rough.weight = 1.0
+        self.rewards.feet_air_time_variance.weight = 1.0
+        self.rewards.feet_air_time.weight = 0.25
 
         # If the weight of rewards is 0, set rewards to None
         if self.__class__.__name__ == "UnitreeGo2ArmRoughEnvCfg":
             self.disable_zero_weight_rewards()
+
+        # Reward groups for multi-critic PPO
+        self.reward_group_terms = {
+            "loco": [
+                "base_linear_velocity",
+                "base_angular_velocity",
+                "torso_height",
+                "base_roll_pitch_angles",
+                "torso_linear_velocity",
+                "torso_roll_pitch_velocities",
+                "is_alive",
+                "is_terminated",
+                "undesired_robot_contacts",
+                "robot_action_rate",
+                "robot_joint_torque",
+                "robot_joint_velocity"
+            ],
+            "mani": [
+                "ee_position",
+                "ee_orientation",
+                "undesired_arm_contacts",
+                "arm_action_rate",
+                "arm_joint_torques",
+                "arm_joint_velocities"
+            ],
+            "contact": [
+                "feet_contact_rough",
+                "feet_air_time_variance",
+                "feet_air_time"
+            ],
+        }
 
         # ------------------------------Terminations------------------------------
         # self.terminations.illegal_contact.params["sensor_cfg"].body_names = [self.base_link_name, ".*_hip"]
@@ -184,6 +214,4 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.curriculum.command_levels_ang_vel = None   # 不使用速度curriculum
 
         # ------------------------------Commands------------------------------
-        # self.commands.base_velocity.ranges.lin_vel_x = (-1.0, 1.0)
-        # self.commands.base_velocity.ranges.lin_vel_y = (-0.5, 0.5)
-        # self.commands.base_velocity.ranges.ang_vel_z = (-1.0, 1.0)
+        # 具体参数写在 cus_velocity_env_cfg.py 里

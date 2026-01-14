@@ -151,7 +151,8 @@ class CommandsCfg:
         heading_control_stiffness=0.5,
         debug_vis=True,
         ranges=mdp.UniformThresholdVelocityCommandCfg.Ranges(
-            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
+            # lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
+            lin_vel_x=(-1.5, 1.5), lin_vel_y=(-1.5, 1.5), ang_vel_z=(-1.5, 1.5)     # 不使用 heading 命令
         ),
     )
     # 末端执行器（EE）轨迹 + twist 命令
@@ -162,7 +163,7 @@ class CommandsCfg:
         ee_body_name="link6",
         torso_body_name="base",
         shoulder_body_name="link2",
-        reject_cuboid=(-0.25, 0.25, -0.16, 0.16, -0.07, 0.19),  # torso和hip的最大外包络长方体（估计值）
+        reject_cuboid=(-0.25, 0.25, -0.16, 0.16, -0.08, 0.20),  # torso和hip的最大外包络长方体（估计值）
         trajectory_duration_range=(3.0, 5.0),   # 轨迹时间范围
         local_trajectory_probability=0.5,
     )
@@ -171,7 +172,7 @@ class CommandsCfg:
         resampling_time_range=(4.0, 4.0),
         max_height=0.12,
         gait_frequency=1.5,
-        phase_offsets=(0.0, 0.5, 0.5, 0.0),  # [FL, FR, RL, RR]
+        phase_offsets=(0.0, 0.5, 0.5, 0.0),  # [FL, FR, RL, RR]写死顺序了
         clip_to_positive=True,
     )
 
@@ -193,19 +194,39 @@ class CommandsCfg:
 @configclass
 class ActionsCfg:
     """Action specifications for the MDP."""
-
-    legs = mdp.JointPositionActionCfg(
+    # 配置为增量式关节位置控制
+    legs = mdp.RelativeJointPositionActionCfg(
         asset_name="robot",
-        joint_names=[".*_hip_joint", ".*_thigh_joint", ".*_calf_joint"],
-        scale=0.5,
-        use_default_offset=True,
+        joint_names=[
+            "FL_hip_joint",
+            "FL_thigh_joint",
+            "FL_calf_joint",
+            "FR_hip_joint",
+            "FR_thigh_joint",
+            "FR_calf_joint",
+            "RL_hip_joint",
+            "RL_thigh_joint",
+            "RL_calf_joint",
+            "RR_hip_joint",
+            "RR_thigh_joint",
+            "RR_calf_joint"
+        ],
+        scale=0.05,
+        use_zero_offset=True,
         preserve_order=True,
     )
-    arm = mdp.JointPositionActionCfg(
+    arm = mdp.RelativeJointPositionActionCfg(
         asset_name="robot",
-        joint_names=["joint[1-6]"],
-        scale=0.5,
-        use_default_offset=True,    # True：动作是围绕默认姿态的偏移量，在source/robot_lab/robot_lab/assets/unitree.py中配置的
+        joint_names=[
+            "joint1",
+            "joint2",
+            "joint3",
+            "joint4",
+            "joint5",
+            "joint6"
+        ],
+        scale=0.05,
+        use_zero_offset=True,    # True：动作是围绕默认姿态的偏移量，在source/robot_lab/robot_lab/assets/unitree.py中配置的
         preserve_order=True,
     )
 
@@ -220,220 +241,136 @@ class ObservationsCfg:
         """Observations for policy group."""
 
         # observation terms (order preserved)
-        base_lin_vel = ObsTerm(
-            func=mdp.base_lin_vel,
-            noise=Unoise(n_min=-0.1, n_max=0.1),
-            clip=(-100.0, 100.0),
-            scale=1.0,
-        )
-        base_ang_vel = ObsTerm(
-            func=mdp.base_ang_vel,
-            noise=Unoise(n_min=-0.2, n_max=0.2),
-            clip=(-100.0, 100.0),
-            scale=1.0,
-        )
-        projected_gravity = ObsTerm(
-            func=mdp.projected_gravity,
-            noise=Unoise(n_min=-0.05, n_max=0.05),
-            clip=(-100.0, 100.0),
-            scale=1.0,
-        )
-        velocity_commands = ObsTerm(
-            func=mdp.generated_commands,
-            params={"command_name": "base_velocity"},
-            clip=(-100.0, 100.0),
-            scale=1.0,
-        )
-        # # 足端摆动高度命令（[FL, FR, RL, RR]）
-        # feet_swing_height_command = ObsTerm(
-        #     func=mdp.generated_commands,
-        #     params={"command_name": "feet_swing_height"},
-        #     clip=(0.0, 1.0),
-        #     scale=1.0,
-        # )
-        joint_pos = ObsTerm(
-            func=mdp.joint_pos_rel,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*", preserve_order=True)},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
-            clip=(-100.0, 100.0),
-            scale=1.0,
-        )
-        joint_vel = ObsTerm(
-            func=mdp.joint_vel_rel,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*", preserve_order=True)},
-            noise=Unoise(n_min=-1.5, n_max=1.5),
-            clip=(-100.0, 100.0),
-            scale=1.0,
-        )
-        actions = ObsTerm(
-            func=mdp.last_action,
-            clip=(-100.0, 100.0),
-            scale=1.0,
-        )
-        height_scan = ObsTerm(
-            func=mdp.height_scan,
-            params={"sensor_cfg": SceneEntityCfg("height_scanner")},
-            noise=Unoise(n_min=-0.1, n_max=0.1),
-            clip=(-1.0, 1.0),
-            scale=1.0,
-        )
-        # # 步态命令
-        # gait_commands = ObsTerm(
-        #     func=mdp.generated_commands,
-        #     params={"command_name": "gait_command"},
-        # )
-
-        def __post_init__(self):
-            self.enable_corruption = True   # policy 加噪声，有一些观测项不加噪声如 velocity_commands、gait_commands等
-            self.concatenate_terms = True
-
-    @configclass
-    class CriticCfg(ObsGroup):
-        """Observations for critic group."""
-
-        # observation terms (order preserved)
         # History_term: 4帧关节位置, 72 Dim
         # 关节位置历史（过去4帧），维度 = 关节数 × 4
         joint_pos_history = ObsTerm(
             func=mdp.joint_pos_rel,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*", preserve_order=True)},
+            params={
+                "asset_cfg": SceneEntityCfg(
+                    "robot",
+                    joint_names=[
+                        "FL_hip_joint",
+                        "FL_thigh_joint",
+                        "FL_calf_joint",
+                        "FR_hip_joint",
+                        "FR_thigh_joint",
+                        "FR_calf_joint",
+                        "RL_hip_joint",
+                        "RL_thigh_joint",
+                        "RL_calf_joint",
+                        "RR_hip_joint",
+                        "RR_thigh_joint",
+                        "RR_calf_joint",
+                        "joint1",
+                        "joint2",
+                        "joint3",
+                        "joint4",
+                        "joint5",
+                        "joint6",
+                    ],
+                    preserve_order=True,
+                )
+            },
             # noise=Unoise(n_min=-0.01, n_max=0.01),
             clip=(-100.0, 100.0),
+            noise=Unoise(n_min=-0.01, n_max=0.01),
             scale=1.0,
             history_length=4,          # 存储过去4帧
             flatten_history_dim=True,  # 将历史维度展平为2D (num_envs, joint_num * 4)
         )
-
-
         # Proprioception_term: 重力投影, 3 Dim
         projected_gravity = ObsTerm(
             func=mdp.projected_gravity,
+            noise=Unoise(n_min=-0.01, n_max=0.01),
             clip=(-100.0, 100.0),
             scale=1.0,
         )        
         # Proprioception_term: 基座线速度, 3 Dim
         base_lin_vel = ObsTerm(
             func=mdp.base_lin_vel,
+            noise=Unoise(n_min=-0.01, n_max=0.01),
             clip=(-100.0, 100.0),
             scale=1.0,
         )
         # Proprioception_term: 基座角速度, 3 Dim
         base_ang_vel = ObsTerm(
             func=mdp.base_ang_vel,
+            noise=Unoise(n_min=-0.1, n_max=0.1),
             clip=(-100.0, 100.0),
             scale=1.0,
         )
         # Proprioception_term: 关节位置, 18 Dim
         joint_pos = ObsTerm(
             func=mdp.joint_pos_rel,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*", preserve_order=True)},
+            params={
+                "asset_cfg": SceneEntityCfg(
+                    "robot",
+                    joint_names=[
+                        "FL_hip_joint",
+                        "FL_thigh_joint",
+                        "FL_calf_joint",
+                        "FR_hip_joint",
+                        "FR_thigh_joint",
+                        "FR_calf_joint",
+                        "RL_hip_joint",
+                        "RL_thigh_joint",
+                        "RL_calf_joint",
+                        "RR_hip_joint",
+                        "RR_thigh_joint",
+                        "RR_calf_joint",
+                        "joint1",
+                        "joint2",
+                        "joint3",
+                        "joint4",
+                        "joint5",
+                        "joint6",
+                    ],
+                    preserve_order=True,
+                )
+            },
+            noise=Unoise(n_min=-0.01, n_max=0.01),
             clip=(-100.0, 100.0),
             scale=1.0,
         )
         # Proprioception_term: 关节速度, 18 Dim
         joint_vel = ObsTerm(
             func=mdp.joint_vel_rel,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*", preserve_order=True)},
-            clip=(-100.0, 100.0),
-            scale=1.0,
-        )
-
-
-        # Privileged info term: Feet contact state, 4 Dim
-        # Feet contact state: 足端接触状态（二值），4 Dim（四足机器人）
-        # 需要在子类中配置 body_names，如 ".*_foot"
-        feet_contact_state = ObsTerm(
-            func=mdp.feet_contact_state,
             params={
-                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=""),
-                "threshold": 1.0,
+                "asset_cfg": SceneEntityCfg(
+                    "robot",
+                    joint_names=[
+                        "FL_hip_joint",
+                        "FL_thigh_joint",
+                        "FL_calf_joint",
+                        "FR_hip_joint",
+                        "FR_thigh_joint",
+                        "FR_calf_joint",
+                        "RL_hip_joint",
+                        "RL_thigh_joint",
+                        "RL_calf_joint",
+                        "RR_hip_joint",
+                        "RR_thigh_joint",
+                        "RR_calf_joint",
+                        "joint1",
+                        "joint2",
+                        "joint3",
+                        "joint4",
+                        "joint5",
+                        "joint6",
+                    ],
+                    preserve_order=True,
+                )
             },
-            clip=(0.0, 1.0),
-            scale=1.0,
-        )
-        # Privileged info term: Static friction, 4 Dim ————————————————————————————————————————————————————————————————保持质疑
-        # Static friction: 静摩擦系数（域随机化量），4 Dim（四足机器人）
-        # 读取 randomize_rigid_body_material 随机化后的摩擦系数
-        # 需要在子类中配置 body_names，如 ".*_foot"
-        static_friction = ObsTerm(
-            func=mdp.static_friction,
-            params={"asset_cfg": SceneEntityCfg("robot", body_names="")},
-            clip=(0.0, 2.0),
-            scale=1.0,
-        )
-        # Privileged info term: Feet air time, 4 Dim
-        # Feet air time: 足端滞空时间，4 Dim（四足机器人）
-        # 需要在子类中配置 body_names，如 ".*_foot"
-        # 注意：需要 ContactSensorCfg.track_air_time=True
-        feet_air_time = ObsTerm(
-            func=mdp.feet_air_time,
-            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="")},
-            clip=(0.0, 1.0),
-            scale=1.0,
-        )
-
-        # Privileged info term: Base external wrench, 6 Dim
-        # 基座外部力/力矩（域随机化量），由 randomize_apply_external_force_torque 设置
-        # 需要在子类中配置 body_names 为基座名称
-        base_external_wrench = ObsTerm(
-            func=mdp.base_external_wrench,
-            params={"asset_cfg": SceneEntityCfg("robot", body_names="")},
+            noise=Unoise(n_min=-0.2, n_max=0.2),
             clip=(-100.0, 100.0),
             scale=1.0,
         )
-
-        # Privileged info term: Base external push velocity, 6 Dim
-        # 基座外部推动速度（域随机化量），由 push_by_setting_velocity 设置
-        # 返回当前根速度（包含推动扰动）
-        # 需要在子类中配置 body_names 为基座名称（虽然函数内部读取的是 root_vel_w）
-        base_external_push_velocity = ObsTerm(
-            func=mdp.base_external_push_velocity,
-            params={"asset_cfg": SceneEntityCfg("robot", body_names="")},
-            clip=(-10.0, 10.0),
-            scale=1.0,
-        )
-
-        # Privileged info term: Base mass disturbance, 1 Dim
-        # 基座质量扰动（域随机化量），由 randomize_rigid_body_mass 设置
-        # 返回当前质量与默认质量的差值
-        # 需要在子类中配置 body_names 为基座名称
-        base_mass_disturbance = ObsTerm(
-            func=mdp.base_mass_disturbance,
-            params={"asset_cfg": SceneEntityCfg("robot", body_names="")},
-            clip=(-10.0, 10.0),
-            scale=1.0,
-        )
-
-        # Privileged info term: End-effector external wrench, 6 Dim
-        # 末端执行器外部力/力矩（域随机化量），由 randomize_apply_external_force_torque 设置
-        # 需要在子类中配置 body_names 为末端执行器名称
-        ee_external_wrench = ObsTerm(
-            func=mdp.ee_external_wrench,
-            params={"asset_cfg": SceneEntityCfg("robot", body_names="")},
-            clip=(-100.0, 100.0),
-            scale=1.0,
-        )
-
-        # Privileged info term: End-effector mass disturbance, 1 Dim
-        # 末端执行器质量扰动（域随机化量），由 randomize_rigid_body_mass 设置
-        # 返回当前质量与默认质量的差值
-        # 需要在子类中配置 body_names 为末端执行器名称
-        ee_mass_disturbance = ObsTerm(
-            func=mdp.ee_mass_disturbance,
-            params={"asset_cfg": SceneEntityCfg("robot", body_names="")},
-            clip=(-10.0, 10.0),
-            scale=1.0,
-        )
-
-
         # Previous_action_term: 上一步动作, 18 Dim
         actions = ObsTerm(
             func=mdp.last_action,
             clip=(-100.0, 100.0),
             scale=1.0,
         )
-#***********************************************************************************************************************************
-# 处理command观测项
         # Command term: Base velocity command, 3 Dim
         # 基座速度命令（相对于机器人坐标系 body frame）
         # [0]: lin_vel_x 前向线速度 (m/s)
@@ -460,33 +397,253 @@ class ObservationsCfg:
             scale=1.0,
         )
 
+        def __post_init__(self):
+            self.enable_corruption = True   # policy 加噪声，有一些观测项不加噪声如 velocity_commands、gait_commands等
+            self.concatenate_terms = True
+
+    @configclass
+    class CriticCfg(ObsGroup):
+        """Observations for critic group."""
+
+        # observation terms (order preserved)
+        # History_term: 4帧关节位置, 72 Dim
+        # 关节位置历史（过去4帧），维度 = 关节数 × 4
+        joint_pos_history = ObsTerm(
+            func=mdp.joint_pos_rel,
+            params={
+                "asset_cfg": SceneEntityCfg(
+                    "robot",
+                    joint_names=[
+                        "FL_hip_joint",
+                        "FL_thigh_joint",
+                        "FL_calf_joint",
+                        "FR_hip_joint",
+                        "FR_thigh_joint",
+                        "FR_calf_joint",
+                        "RL_hip_joint",
+                        "RL_thigh_joint",
+                        "RL_calf_joint",
+                        "RR_hip_joint",
+                        "RR_thigh_joint",
+                        "RR_calf_joint",
+                        "joint1",
+                        "joint2",
+                        "joint3",
+                        "joint4",
+                        "joint5",
+                        "joint6",
+                    ],
+                    preserve_order=True,
+                )
+            },
+            # noise=Unoise(n_min=-0.01, n_max=0.01),
+            clip=(-100.0, 100.0),
+            scale=1.0,
+            history_length=4,          # 存储过去4帧
+            flatten_history_dim=True,  # 将历史维度展平为2D (num_envs, joint_num * 4)
+        )
+        # Proprioception_term: 重力投影, 3 Dim
+        projected_gravity = ObsTerm(
+            func=mdp.projected_gravity,
+            clip=(-100.0, 100.0),
+            scale=1.0,
+        )        
+        # Proprioception_term: 基座线速度, 3 Dim
+        base_lin_vel = ObsTerm(
+            func=mdp.base_lin_vel,
+            clip=(-100.0, 100.0),
+            scale=1.0,
+        )
+        # Proprioception_term: 基座角速度, 3 Dim
+        base_ang_vel = ObsTerm(
+            func=mdp.base_ang_vel,
+            clip=(-100.0, 100.0),
+            scale=1.0,
+        )
+        # Proprioception_term: 关节位置, 18 Dim
+        joint_pos = ObsTerm(
+            func=mdp.joint_pos_rel,
+            params={
+                "asset_cfg": SceneEntityCfg(
+                    "robot",
+                    joint_names=[
+                        "FL_hip_joint",
+                        "FL_thigh_joint",
+                        "FL_calf_joint",
+                        "FR_hip_joint",
+                        "FR_thigh_joint",
+                        "FR_calf_joint",
+                        "RL_hip_joint",
+                        "RL_thigh_joint",
+                        "RL_calf_joint",
+                        "RR_hip_joint",
+                        "RR_thigh_joint",
+                        "RR_calf_joint",
+                        "joint1",
+                        "joint2",
+                        "joint3",
+                        "joint4",
+                        "joint5",
+                        "joint6",
+                    ],
+                    preserve_order=True,
+                )
+            },
+            clip=(-100.0, 100.0),
+            scale=1.0,
+        )
+        # Proprioception_term: 关节速度, 18 Dim
+        joint_vel = ObsTerm(
+            func=mdp.joint_vel_rel,
+            params={
+                "asset_cfg": SceneEntityCfg(
+                    "robot",
+                    joint_names=[
+                        "FL_hip_joint",
+                        "FL_thigh_joint",
+                        "FL_calf_joint",
+                        "FR_hip_joint",
+                        "FR_thigh_joint",
+                        "FR_calf_joint",
+                        "RL_hip_joint",
+                        "RL_thigh_joint",
+                        "RL_calf_joint",
+                        "RR_hip_joint",
+                        "RR_thigh_joint",
+                        "RR_calf_joint",
+                        "joint1",
+                        "joint2",
+                        "joint3",
+                        "joint4",
+                        "joint5",
+                        "joint6",
+                    ],
+                    preserve_order=True,
+                )
+            },
+            clip=(-100.0, 100.0),
+            scale=1.0,
+        )
+        # Privileged info term: Feet contact state, 4 Dim
+        # Feet contact state: 足端接触状态（二值），4 Dim（四足机器人）
+        # 需要在子类中配置 body_names，如 ".*_foot"
+        feet_contact_state = ObsTerm(
+            func=mdp.feet_contact_state,
+            params={
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
+                "threshold": 1.0,
+            },
+            clip=(0.0, 1.0),
+            scale=1.0,
+        )
+        # Privileged info term: Static friction, 4 Dim ————————————————————————————————————————————————————————————————保持质疑
+        # Static friction: 静摩擦系数（域随机化量），4 Dim（四足机器人）
+        # 读取 randomize_rigid_body_material 随机化后的摩擦系数
+        # 需要在子类中配置 body_names，如 ".*_foot"
+        static_friction = ObsTerm(
+            func=mdp.static_friction,
+            params={"asset_cfg": SceneEntityCfg("robot", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])},
+            clip=(0.0, 2.0),
+            scale=1.0,
+        )
+        # Privileged info term: Feet air time, 4 Dim
+        # Feet air time: 足端滞空时间，4 Dim（四足机器人）
+        # 需要在子类中配置 body_names，如 ".*_foot"
+        # 注意：需要 ContactSensorCfg.track_air_time=True
+        feet_air_time = ObsTerm(
+            func=mdp.feet_air_time,
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])},
+            clip=(0.0, 1.0),
+            scale=1.0,
+        )
+
+        # Privileged info term: Base external wrench, 6 Dim
+        # 基座外部力/力矩（域随机化量），由 randomize_apply_external_force_torque 设置
+        # 需要在子类中配置 body_names 为基座名称
+        base_external_wrench = ObsTerm(
+            func=mdp.base_external_wrench,
+            params={"asset_cfg": SceneEntityCfg("robot", body_names=["base"])},
+            clip=(-100.0, 100.0),
+            scale=1.0,
+        )
+
+        # Privileged info term: Base external push velocity, 6 Dim
+        # 基座外部推动速度（域随机化量），由 push_by_setting_velocity 设置
+        # 返回当前根速度（包含推动扰动）
+        # 需要在子类中配置 body_names 为基座名称（虽然函数内部读取的是 root_vel_w）
+        base_external_push_velocity = ObsTerm(
+            func=mdp.base_external_push_velocity,
+            params={"asset_cfg": SceneEntityCfg("robot", body_names=["base"])},
+            clip=(-10.0, 10.0),
+            scale=1.0,
+        )
+
+        # Privileged info term: Base mass disturbance, 1 Dim
+        # 基座质量扰动（域随机化量），由 randomize_rigid_body_mass 设置
+        # 返回当前质量与默认质量的差值
+        # 需要在子类中配置 body_names 为基座名称
+        base_mass_disturbance = ObsTerm(
+            func=mdp.base_mass_disturbance,
+            params={"asset_cfg": SceneEntityCfg("robot", body_names=["base"])},
+            clip=(-10.0, 10.0),
+            scale=1.0,
+        )
+
+        # Privileged info term: End-effector external wrench, 6 Dim
+        # 末端执行器外部力/力矩（域随机化量），由 randomize_apply_external_force_torque 设置
+        # 需要在子类中配置 body_names 为末端执行器名称
+        ee_external_wrench = ObsTerm(
+            func=mdp.ee_external_wrench,
+            params={"asset_cfg": SceneEntityCfg("robot", body_names=["link6"])},
+            clip=(-100.0, 100.0),
+            scale=1.0,
+        )
+
+        # Privileged info term: End-effector mass disturbance, 1 Dim
+        # 末端执行器质量扰动（域随机化量），由 randomize_rigid_body_mass 设置
+        # 返回当前质量与默认质量的差值
+        # 需要在子类中配置 body_names 为末端执行器名称
+        ee_mass_disturbance = ObsTerm(
+            func=mdp.ee_mass_disturbance,
+            params={"asset_cfg": SceneEntityCfg("robot", body_names=["link6"])},
+            clip=(-10.0, 10.0),
+            scale=1.0,
+        )
 
 
-        # base高度扫描，这里近启用粗糙的观测，精确的height_scan_base用于reward计算
-        # height_scan = ObsTerm(
-        #     func=mdp.height_scan,
-        #     params={"sensor_cfg": SceneEntityCfg("height_scanner")},
-        #     clip=(-1.0, 1.0),
-        #     scale=1.0,
-        # )        
-        # # 速度命令
-        # velocity_commands = ObsTerm(
-        #     func=mdp.generated_commands,
-        #     params={"command_name": "base_velocity"},
-        #     clip=(-100.0, 100.0),
-        #     scale=1.0,
-        # )
-        # # 步态命令
-        # gait_commands = ObsTerm(
-        #     func=mdp.generated_commands,
-        #     params={"command_name": "gait_command"},
-        # )
-
-        # joint_effort = ObsTerm(
-        #     func=mdp.joint_effort,
-        #     clip=(-100, 100),
-        #     scale=0.01,
-        # )
+        # Previous_action_term: 上一步动作, 18 Dim
+        actions = ObsTerm(
+            func=mdp.last_action,
+            clip=(-100.0, 100.0),
+            scale=1.0,
+        )
+        #***********************************************************************************************************************
+        # 处理command观测项
+        # Command term: Base velocity command, 3 Dim
+        # 基座速度命令（相对于机器人坐标系 body frame）
+        # [0]: lin_vel_x 前向线速度 (m/s)
+        # [1]: lin_vel_y 侧向线速度 (m/s)
+        # [2]: ang_vel_z 偏航角速度 (rad/s)
+        base_velocity_command = ObsTerm(
+            func=mdp.generated_commands,
+            params={"command_name": "base_velocity"},
+            clip=(-10.0, 10.0),
+            scale=1.0,
+        )
+        # Command term: End-effector twist + goal pose command, 13 Dim
+        ee_twist_command = ObsTerm(
+            func=mdp.generated_commands,
+            params={"command_name": "ee_twist"},
+            clip=(-10.0, 10.0),
+            scale=1.0,
+        )
+        # Command term: Feet swing height command, 4 Dim
+        feet_swing_height_command = ObsTerm(
+            func=mdp.generated_commands,
+            params={"command_name": "feet_swing_height"},
+            clip=(0.0, 1.0),
+            scale=1.0,
+        )
 
         def __post_init__(self):
             self.enable_corruption = False  # critic 不加噪声
@@ -642,7 +799,7 @@ class RewardsCfg:
         params={
             "target_height": 0.0, 
             "std": math.sqrt(0.1), 
-            "asset_cfg": SceneEntityCfg("robot", body_names=""),
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "sensor_cfg": SceneEntityCfg("height_scanner_base")
         }
     )
@@ -651,15 +808,15 @@ class RewardsCfg:
         weight=0.0, 
         params={
             "std": math.sqrt(0.1),
-            "asset_cfg": SceneEntityCfg("robot", body_names="")                
+            "asset_cfg": SceneEntityCfg("robot", body_names="base")                
         }
     )
-    Torso_linear_velocity = RewTerm(
+    torso_linear_velocity = RewTerm(
         func=mdp.lin_vel_z_exp,
         weight=0.0,
         params={
             "std": math.sqrt(0.2),
-            "asset_cfg": SceneEntityCfg("robot", body_names="")
+            "asset_cfg": SceneEntityCfg("robot", body_names="base")
         }
     )
     torso_roll_pitch_velocities = RewTerm(
@@ -667,7 +824,7 @@ class RewardsCfg:
         weight=0.0,
         params={
             "std": math.sqrt(0.2),
-            "asset_cfg": SceneEntityCfg("robot", body_names="")
+            "asset_cfg": SceneEntityCfg("robot", body_names="base")
         }
     )
     is_alive = RewTerm(
@@ -691,7 +848,19 @@ class RewardsCfg:
         weight=0.0,
         params={
             "std": math.sqrt(0.1),
-            "asset_cfg": SceneEntityCfg("robot", joint_names=[".*_hip_.*", ".*_thigh_.*", ".*_calf_.*"]),
+            "asset_cfg": SceneEntityCfg("robot", joint_names=[
+                        "FL_hip_joint",
+                        "FL_thigh_joint",
+                        "FL_calf_joint",
+                        "FR_hip_joint",
+                        "FR_thigh_joint",
+                        "FR_calf_joint",
+                        "RL_hip_joint",
+                        "RL_thigh_joint",
+                        "RL_calf_joint",
+                        "RR_hip_joint",
+                        "RR_thigh_joint",
+                        "RR_calf_joint"]),
         },
     )
     robot_joint_torque = RewTerm(
@@ -699,7 +868,19 @@ class RewardsCfg:
         weight=0.0,
         params={
             "std": math.sqrt(40.0),
-            "asset_cfg": SceneEntityCfg("robot", joint_names=[".*_hip_.*", ".*_thigh_.*", ".*_calf_.*"]),
+            "asset_cfg": SceneEntityCfg("robot", joint_names=[
+                        "FL_hip_joint",
+                        "FL_thigh_joint",
+                        "FL_calf_joint",
+                        "FR_hip_joint",
+                        "FR_thigh_joint",
+                        "FR_calf_joint",
+                        "RL_hip_joint",
+                        "RL_thigh_joint",
+                        "RL_calf_joint",
+                        "RR_hip_joint",
+                        "RR_thigh_joint",
+                        "RR_calf_joint"]),
         },
     )
     robot_joint_velocity = RewTerm(
@@ -707,7 +888,19 @@ class RewardsCfg:
         weight=0.0,
         params={
             "std": math.sqrt(4.0),
-            "asset_cfg": SceneEntityCfg("robot", joint_names=[".*_hip_.*", ".*_thigh_.*", ".*_calf_.*"]),
+            "asset_cfg": SceneEntityCfg("robot", joint_names=[
+                        "FL_hip_joint",
+                        "FL_thigh_joint",
+                        "FL_calf_joint",
+                        "FR_hip_joint",
+                        "FR_thigh_joint",
+                        "FR_calf_joint",
+                        "RL_hip_joint",
+                        "RL_thigh_joint",
+                        "RL_calf_joint",
+                        "RR_hip_joint",
+                        "RR_thigh_joint",
+                        "RR_calf_joint"]),
         },
     )
 

@@ -38,7 +38,7 @@ from . import agents
 
 gym.register(
     id="RobotLab-Isaac-Velocity-Flat-Go2Arm-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    entry_point="robot_lab.envs:RewardGroupManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
         # UnitreeGo2ArmFlatEnvCfg这是一个环境配置类
@@ -50,7 +50,7 @@ gym.register(
 
 gym.register(
     id="RobotLab-Isaac-Velocity-Rough-Go2Arm-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    entry_point="robot_lab.envs:RewardGroupManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.rough_env_cfg:UnitreeGo2ArmRoughEnvCfg",
@@ -58,4 +58,3 @@ gym.register(
         # "cusrl_cfg_entry_point": f"{agents.__name__}.cusrl_ppo_cfg:UnitreeGo2ArmRoughTrainerCfg",
     },
 )
-
