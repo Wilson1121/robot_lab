@@ -123,8 +123,8 @@ def static_friction(
         # Get static friction (index 0) for this shape
         static_frictions_list.append(materials[:, shape_idx, 0])
     
-    # Stack to create (num_envs, num_feet) tensor
-    static_frictions = torch.stack(static_frictions_list, dim=1)
+    # Stack to create (num_envs, num_feet) tensor; keep on sim device for downstream scaling.
+    static_frictions = torch.stack(static_frictions_list, dim=1).to(asset.device)
     
     return static_frictions
 
@@ -237,9 +237,12 @@ def base_mass_disturbance(
     # Cache default mass on first call (before randomization takes effect in observation)
     cache_name = f"_default_mass_{asset_cfg.name}_{body_id}"
     if not hasattr(env, cache_name):
-        # Use the default_mass from asset data if available
-        setattr(env, cache_name, asset.data.default_mass[:, body_id].clone())
+        # Cache on the same device as other tensors to avoid device mismatch.
+        setattr(env, cache_name, asset.data.default_mass[:, body_id].clone().to(asset.device))
     default_mass = getattr(env, cache_name)
+    if default_mass.device != asset.device:
+        default_mass = default_mass.to(asset.device)
+        setattr(env, cache_name, default_mass)
     
     # Compute mass disturbance
     mass_disturbance = (current_mass - default_mass).unsqueeze(-1)
@@ -319,8 +322,11 @@ def ee_mass_disturbance(
     # Cache default mass on first call
     cache_name = f"_default_mass_ee_{asset_cfg.name}_{body_id}"
     if not hasattr(env, cache_name):
-        setattr(env, cache_name, asset.data.default_mass[:, body_id].clone())
+        setattr(env, cache_name, asset.data.default_mass[:, body_id].clone().to(asset.device))
     default_mass = getattr(env, cache_name)
+    if default_mass.device != asset.device:
+        default_mass = default_mass.to(asset.device)
+        setattr(env, cache_name, default_mass)
     
     # Compute mass disturbance
     mass_disturbance = (current_mass - default_mass).unsqueeze(-1)

@@ -30,6 +30,7 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import robot_lab.tasks.manager_based.locomotion.velocity.mdp as mdp
+from robot_lab.tasks.manager_based.locomotion.velocity.mdp import observations as mdp_obs
 # 添加实验室的包
 # import isaaclab_nhb.tasks.mdp_nhb as mdp_nhb
 ##
@@ -147,7 +148,7 @@ class CommandsCfg:
         resampling_time_range=(10.0, 10.0),
         rel_standing_envs=0.02,
         rel_heading_envs=1.0,
-        heading_command=True,
+        heading_command=False,
         heading_control_stiffness=0.5,
         debug_vis=True,
         ranges=mdp.UniformThresholdVelocityCommandCfg.Ranges(
@@ -551,7 +552,7 @@ class ObservationsCfg:
         # 需要在子类中配置 body_names，如 ".*_foot"
         # 注意：需要 ContactSensorCfg.track_air_time=True
         feet_air_time = ObsTerm(
-            func=mdp.feet_air_time,
+            func=mdp_obs.feet_air_time,
             params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])},
             clip=(0.0, 1.0),
             scale=1.0,
@@ -1009,7 +1010,7 @@ class RewardsCfg:
         func=mdp.undesired_contacts,
         weight=0.0,
         params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["link1", "link2", "link3", "link4", "link5", "link6", "gripper_base"]),
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["link1", "link2", "link3", "link4", "link5", "link6"]),
             "threshold": 1.0,
         },
     )

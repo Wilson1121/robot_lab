@@ -692,6 +692,7 @@ def feet_contact_paper(
     torso_quat_w = asset.data.body_quat_w[:, torso_body_cfg.body_ids[0]]
     task_quat_w = yaw_quat(torso_quat_w)
     foot_vel_w = asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :]
+    task_quat_w = task_quat_w.unsqueeze(1).expand(-1, foot_vel_w.shape[1], -1)
     foot_vel_t = math_utils.quat_apply_inverse(task_quat_w, foot_vel_w)
     vel_xy = torch.linalg.norm(foot_vel_t[..., :2], dim=-1)
     stance_term = c_des * in_contact * torch.exp(-(vel_xy**2) / (vel_std**2))
