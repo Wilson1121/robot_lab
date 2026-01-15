@@ -58,6 +58,10 @@ class UnitreeGo2ArmRoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         max_grad_norm=1.0,
     )
 
+    def __post_init__(self):
+        super().__post_init__()
+        # Enable multi-critic heads to match reward_group_terms.
+        self.policy.critic_names = ["loco", "mani", "contact"]
 
 @configclass
 class UnitreeGo2ArmFlatPPORunnerCfg(UnitreeGo2ArmRoughPPORunnerCfg):

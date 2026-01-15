@@ -113,30 +113,7 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         
 
         # ------------------------------Events------------------------------
-        self.events.randomize_reset_base.params = {
-            "pose_range": {
-                "x": (-0.5, 0.5),
-                "y": (-0.5, 0.5),
-                "z": (0.0, 0.2),
-                "roll": (-3.14, 3.14),
-                "pitch": (-3.14, 3.14),
-                "yaw": (-3.14, 3.14),
-            },
-            "velocity_range": {
-                "x": (-0.5, 0.5),
-                "y": (-0.5, 0.5),
-                "z": (-0.5, 0.5),
-                "roll": (-0.5, 0.5),
-                "pitch": (-0.5, 0.5),
-                "yaw": (-0.5, 0.5),
-            },
-        }
-        self.events.randomize_rigid_body_mass_base.params["asset_cfg"].body_names = [self.base_link_name]
-        self.events.randomize_rigid_body_mass_others.params["asset_cfg"].body_names = [
-            f"^(?!.*{self.base_link_name}).*"
-        ]
-        self.events.randomize_com_positions.params["asset_cfg"].body_names = [self.base_link_name]
-        self.events.randomize_apply_external_force_torque.params["asset_cfg"].body_names = [self.base_link_name]
+        # 具体参数写在 cus_velocity_env_cfg.py 里
 
         # ------------------------------Rewards------------------------------
         # 父类LocomotionVelocityRoughEnvCfg里已经定义了一些reward term，默认权重为0，这里修改其权重和参数
@@ -203,7 +180,8 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         # ------------------------------Terminations------------------------------
         # self.terminations.illegal_contact.params["sensor_cfg"].body_names = [self.base_link_name, ".*_hip"]
         # self.terminations.illegal_contact = None
-
+        # 基座翻倒终止(超过一定角度即终止，设为1 rad)
+        self.terminations.bad_orientation.params["asset_cfg"].body_names = [self.base_link_name]
         # 只允许足端接地：非足端任意刚体与地面接触即终止
         self.terminations.illegal_contact.params["sensor_cfg"].body_names = [f"^(?!.*{self.foot_link_name}).*"]
 

@@ -659,40 +659,78 @@ class EventCfg:
     """Configuration for events."""
 
     # startup
-    # 机械材质参数随机化，如足端摩擦系数等
+    # 足端摩擦系数随机化
     randomize_rigid_body_material = EventTerm(
         func=mdp.randomize_rigid_body_material,
-        mode="startup",
+        mode="reset",
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-            "static_friction_range": (0.3, 1.0),
-            "dynamic_friction_range": (0.3, 0.8),
-            "restitution_range": (0.0, 0.5),
+            "asset_cfg": SceneEntityCfg("robot", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
+            "static_friction_range": (0.5, 1.2),
+            "dynamic_friction_range": (0.3, 1.2),
+            "restitution_range": (0.0, 0.2),
             "num_buckets": 64,
         },
     )
     # 基座质量随机化
     randomize_rigid_body_mass_base = EventTerm(
         func=mdp.randomize_rigid_body_mass,
-        mode="startup",
+        mode="reset",
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names=""),
-            "mass_distribution_params": (-1.0, 3.0),
+            "asset_cfg": SceneEntityCfg("robot", body_names=["base"]),
+            "mass_distribution_params": (-5.0, 5.0),
             "operation": "add",
             "recompute_inertia": True,
         },
     )
-    # 其他部分质量随机化
-    randomize_rigid_body_mass_others = EventTerm(
+    # EE质量随机化
+    randomize_rigid_body_mass_ee = EventTerm(
         func=mdp.randomize_rigid_body_mass,
-        mode="startup",
+        mode="reset",
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-            "mass_distribution_params": (0.7, 1.3),
-            "operation": "scale",
+            "asset_cfg": SceneEntityCfg("robot", body_names=["link6"]),
+            "mass_distribution_params": (0.0, 1.8),
+            "operation": "add",
             "recompute_inertia": True,
         },
     )
+    # 基座外力/力矩随机化
+    randomize_apply_external_force_torque_base = EventTerm(
+        func=mdp.apply_external_force_torque,
+        mode="reset",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=["base"]),
+            "force_range": (-50.0, 50.0),
+            "torque_range": (-20.0, 20.0),
+        },
+    )
+    # 末端执行器外力/力矩随机化
+    randomize_apply_external_force_torque_ee = EventTerm(
+        func=mdp.apply_external_force_torque,
+        mode="reset",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=["link6"]),
+            "force_range": (-3.0, 3.0),
+            "torque_range": (0.0, 0.0),
+        },
+    )
+    # 基座随机速度扰动
+    randomize_push_robot = EventTerm(
+        func=mdp.push_by_setting_velocity,
+        mode="interval",
+        interval_range_s=(10.0, 15.0),
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=["base"]),
+            "velocity_range": {
+                "x": (-0.2, 0.2),   # m/s
+                "y": (-0.2, 0.2),
+                "z": (-0.2, 0.2),
+                "roll": (-0.2, 0.2),   # rad/s
+                "pitch": (-0.2, 0.2),
+                "yaw": (-0.2, 0.2),
+            },
+        },
+    )
+
 
     # Skip: inertia updated via mass randomization by setting recompute_inertia=True
     # randomize_rigid_body_inertia = EventTerm(
@@ -704,71 +742,112 @@ class EventCfg:
     #         "operation": "scale",
     #     },
     # )
-    # 质心位置随机化
+
+    # 质心位置随机化（只加了base，其他link也可加）
     randomize_com_positions = EventTerm(
         func=mdp.randomize_rigid_body_com,
         mode="startup",
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-            "com_range": {"x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (-0.05, 0.05)},
+            "asset_cfg": SceneEntityCfg("robot", body_names=["base"]),
+            "com_range": {"x": (-0.03, 0.03), "y": (-0.03, 0.03), "z": (-0.02, 0.02)},
         },
     )
-
-    # reset
-    randomize_apply_external_force_torque = EventTerm(
-        func=mdp.apply_external_force_torque,
-        mode="reset",
-        params={
-            "asset_cfg": SceneEntityCfg("robot", body_names=""),
-            "force_range": (-10.0, 10.0),
-            "torque_range": (-10.0, 10.0),
-        },
-    )
-
+    # 关节初始状态随机化
     randomize_reset_joints = EventTerm(
-        func=mdp.reset_joints_by_scale,
-        # func=mdp.reset_joints_by_offset,
+        # func=mdp.reset_joints_by_scale,
+        func=mdp.reset_joints_by_offset,
         mode="reset",
         params={
-            "position_range": (1.0, 1.0),
-            "velocity_range": (0.0, 0.0),
+            "asset_cfg": SceneEntityCfg(
+                "robot", 
+                joint_names=[
+                    "FL_hip_joint",
+                    "FL_thigh_joint",
+                    "FL_calf_joint",
+                    "FR_hip_joint",
+                    "FR_thigh_joint",
+                    "FR_calf_joint",
+                    "RL_hip_joint",
+                    "RL_thigh_joint",
+                    "RL_calf_joint",
+                    "RR_hip_joint",
+                    "RR_thigh_joint",
+                    "RR_calf_joint",
+                    "joint1",
+                    "joint2",
+                    "joint3",
+                    "joint4",
+                    "joint5",
+                    "joint6",
+                ],),
+            "position_range": (-0.1, 0.1),
+            "velocity_range": ( 0.0, 0.0),
         },
     )
-
-    randomize_actuator_gains = EventTerm(
+    # robot执行器增益随机化
+    randomize_actuator_gains_robot = EventTerm(
         func=mdp.randomize_actuator_gains,
-        mode="reset",
+        mode="startup",
         params={
-            "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
+            "asset_cfg": SceneEntityCfg(
+                "robot", 
+                joint_names=[
+                    "FL_hip_joint",
+                    "FL_thigh_joint",
+                    "FL_calf_joint",
+                    "FR_hip_joint",
+                    "FR_thigh_joint",
+                    "FR_calf_joint",
+                    "RL_hip_joint",
+                    "RL_thigh_joint",
+                    "RL_calf_joint",
+                    "RR_hip_joint",
+                    "RR_thigh_joint",
+                    "RR_calf_joint"
+                ],),
             "stiffness_distribution_params": (0.5, 2.0),
             "damping_distribution_params": (0.5, 2.0),
             "operation": "scale",
             "distribution": "uniform",
         },
     )
-
+    # arm执行器增益随机化
+    randomize_actuator_gains_arm = EventTerm(
+        func=mdp.randomize_actuator_gains,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot", 
+                joint_names=[
+                    "joint1",
+                    "joint2",
+                    "joint3",
+                    "joint4",
+                    "joint5",
+                    "joint6",
+                ],),
+            "stiffness_distribution_params": (0.8, 1.2),
+            "damping_distribution_params": (0.8, 1.2),
+            "operation": "scale",
+            "distribution": "uniform",
+        },
+    )
+    # base初始状态随机化
     randomize_reset_base = EventTerm(
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=["base"]),
             "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},
             "velocity_range": {
                 "x": (-0.5, 0.5),
                 "y": (-0.5, 0.5),
-                "z": (-0.5, 0.5),
-                "roll": (-0.5, 0.5),
-                "pitch": (-0.5, 0.5),
-                "yaw": (-0.5, 0.5),
+                "z": (-0.1, 0.1),
+                "roll": (-0.2, 0.2),
+                "pitch": (-0.2, 0.2),
+                "yaw": (-0.2, 0.2),
             },
         },
-    )
-
-    # interval
-    randomize_push_robot = EventTerm(
-        func=mdp.push_by_setting_velocity,
-        mode="interval",
-        interval_range_s=(10.0, 15.0),
-        params={"velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)}},
     )
 
 
@@ -1006,6 +1085,12 @@ class TerminationsCfg:
         func=mdp.terrain_out_of_bounds,
         params={"asset_cfg": SceneEntityCfg("robot"), "distance_buffer": 3.0},
         time_out=True,
+    )
+
+    # 倾倒终止
+    bad_orientation = DoneTerm(
+        func=mdp.bad_orientation,
+        params={"asset_cfg": SceneEntityCfg("robot", body_names=""), "limit_angle": 1.0},
     )
 
     # Contact sensor
