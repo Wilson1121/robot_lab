@@ -86,13 +86,13 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.observations.critic.feet_air_time.scale = 1.0
         self.observations.critic.feet_air_time.clip = (0.0, 2.0)
         self.observations.critic.base_external_wrench.scale = 1.0
-        self.observations.critic.base_external_wrench.clip = (-100.0, 100.0)
+        self.observations.critic.base_external_wrench.clip = (-100.0, 100.0)   
         self.observations.critic.base_external_push_velocity.scale = 1.0
         self.observations.critic.base_external_push_velocity.clip = (-10.0, 10.0)
         self.observations.critic.base_mass_disturbance.scale = 1.0
         self.observations.critic.base_mass_disturbance.clip = (-10.0, 10.0)
         self.observations.critic.ee_external_wrench.scale = 1.0
-        self.observations.critic.ee_external_wrench.clip = (-100.0, 100.0)
+        self.observations.critic.ee_external_wrench.clip = (-20.0, 20.0)   # 改小点
         self.observations.critic.ee_mass_disturbance.scale = 1.0
         self.observations.critic.ee_mass_disturbance.clip = (-10.0, 10.0)
         self.observations.critic.actions.scale = 1.0
@@ -106,10 +106,11 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         
 
         # ------------------------------Actions------------------------------
-        # reduce action scale
+        # Action scale: 论文中使用的标准尺度约为 0.25
+        # 过小的 scale (如 0.05) 会导致机器人无法有效控制关节，可能趴地
         # self.actions.joint_pos.scale = {".*_hip_joint": 0.125, "^(?!.*_hip_joint).*": 0.25}
-        self.actions.legs.scale = 0.05
-        self.actions.arm.scale = 0.05
+        self.actions.legs.scale = 0.25  # 修改：从 0.05 增加到 0.25
+        self.actions.arm.scale = 0.25   # 修改：从 0.05 增加到 0.25
         
 
         # ------------------------------Events------------------------------
@@ -127,7 +128,7 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.rewards.is_alive.weight = 0.05
         self.rewards.is_terminated.weight = -400.0
         self.rewards.undesired_robot_contacts.weight = -1.0
-        self.rewards.robot_action_rate.weight = -0.001
+        self.rewards.robot_action_rate.weight = 0.001
         self.rewards.robot_joint_torque.weight = 1e-5
         self.rewards.robot_joint_velocity.weight = 1e-4
         # mani
@@ -139,7 +140,7 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.rewards.arm_joint_velocities.weight = 1e-4
         # contact
         self.rewards.feet_contact_rough.weight = 1.0
-        self.rewards.feet_air_time_variance.weight = 1.0
+        self.rewards.feet_air_time_variance.weight = -1.0
         self.rewards.feet_air_time.weight = 0.25
 
         # If the weight of rewards is 0, set rewards to None
@@ -183,7 +184,8 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         # 基座翻倒终止(超过一定角度即终止，设为1 rad)
         self.terminations.bad_orientation.params["asset_cfg"].body_names = [self.base_link_name]
         # 只允许足端接地：非足端任意刚体与地面接触即终止
-        self.terminations.illegal_contact.params["sensor_cfg"].body_names = [f"^(?!.*{self.foot_link_name}).*"]
+        foot_pattern = "|".join(self.foot_link_name)
+        self.terminations.illegal_contact.params["sensor_cfg"].body_names = [rf"^(?!.*(?:{foot_pattern})$).+"]
 
         # ------------------------------Curriculums------------------------------
         # self.curriculum.command_levels_lin_vel.params["range_multiplier"] = (0.2, 1.0)

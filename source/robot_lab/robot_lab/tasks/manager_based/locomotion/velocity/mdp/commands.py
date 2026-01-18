@@ -547,7 +547,7 @@ class EndEffectorTwistTrajectoryCommandCfg(CommandTermCfg):
 
     # Trajectory sampling
     # 目标位置采样球半径（球心在肩部）
-    position_sphere_radius: float = 1.0
+    position_sphere_radius: float = 0.5
     # Cuboid bounds in task frame to reject goals inside torso/hip region: (xmin, xmax, ymin, ymax, zmin, zmax)
     reject_cuboid: tuple[float, float, float, float, float, float] = (-0.25, 0.35, -0.25, 0.25, -0.25, 0.35)
     # 目标位置采样的最大尝试次数

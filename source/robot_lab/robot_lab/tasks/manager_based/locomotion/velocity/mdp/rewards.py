@@ -602,7 +602,8 @@ class FeetAirTimeVarianceReward(ManagerTermBase):
         air_var = torch.var(self._air_hist, dim=0, unbiased=False)
         contact_var = torch.var(self._contact_hist, dim=0, unbiased=False)
         reward = torch.sum(air_var + contact_var, dim=1)
-        reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
+        # 避免“趴地后惩罚变小”
+        # reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
         return reward
 
 
@@ -1004,7 +1005,8 @@ def undesired_contacts(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: Sce
     is_contact = torch.max(torch.norm(net_contact_forces[:, :, sensor_cfg.body_ids], dim=-1), dim=1)[0] > threshold
     # sum over contacts for each environment
     reward = torch.sum(is_contact, dim=1).float()
-    reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
+    # 删除，避免“趴地不再受罚”
+    # reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
     return reward
 
 

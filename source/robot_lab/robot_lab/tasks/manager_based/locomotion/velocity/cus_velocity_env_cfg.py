@@ -60,7 +60,7 @@ class MySceneCfg(InteractiveSceneCfg):
             restitution_combine_mode="multiply",
             static_friction=1.0,
             dynamic_friction=1.0,
-            restitution=1.0,
+            restitution=0.0,
         ),
         visual_material=sim_utils.MdlFileCfg(
             mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
@@ -170,7 +170,7 @@ class CommandsCfg:
     )
     # 足端摆动高度命令（论文 Eq. (5)）
     feet_swing_height = mdp.DesiredFeetSwingHeightCommandCfg(
-        resampling_time_range=(4.0, 4.0),
+        resampling_time_range=(6.0, 6.0),
         max_height=0.12,
         gait_frequency=1.5,
         phase_offsets=(0.0, 0.5, 0.5, 0.0),  # [FL, FR, RL, RR]写死顺序了
@@ -196,6 +196,8 @@ class CommandsCfg:
 class ActionsCfg:
     """Action specifications for the MDP."""
     # 配置为增量式关节位置控制
+    # 论文公式(2): q_target = q_current + action * scale (增量模式)
+    # use_zero_offset=True 时: offset=0, 公式匹配论文
     legs = mdp.RelativeJointPositionActionCfg(
         asset_name="robot",
         joint_names=[
@@ -212,8 +214,8 @@ class ActionsCfg:
             "RR_thigh_joint",
             "RR_calf_joint"
         ],
-        scale=0.05,
-        use_zero_offset=True,
+        scale=0.25,
+        use_zero_offset=True,  # True: q_target = q_current + action * scale (论文增量模式)
         preserve_order=True,
     )
     arm = mdp.RelativeJointPositionActionCfg(
@@ -226,8 +228,8 @@ class ActionsCfg:
             "joint5",
             "joint6"
         ],
-        scale=0.05,
-        use_zero_offset=True,    # True：动作是围绕默认姿态的偏移量，在source/robot_lab/robot_lab/assets/unitree.py中配置的
+        scale=0.25,
+        use_zero_offset=True,  # True: q_target = q_current + action * scale (论文增量模式)
         preserve_order=True,
     )
 
@@ -724,10 +726,10 @@ class EventCfg:
             "velocity_range": {
                 "x": (-0.2, 0.2),   # m/s
                 "y": (-0.2, 0.2),
-                "z": (-0.2, 0.2),
-                "roll": (-0.2, 0.2),   # rad/s
-                "pitch": (-0.2, 0.2),
-                "yaw": (-0.2, 0.2),
+                # "z": (-0.2, 0.2),
+                # "roll": (-0.2, 0.2),   # rad/s
+                # "pitch": (-0.2, 0.2),
+                # "yaw": (-0.2, 0.2),
             },
         },
     )
@@ -785,54 +787,54 @@ class EventCfg:
             "velocity_range": ( 0.0, 0.0),
         },
     )
-    # robot执行器增益随机化
-    randomize_actuator_gains_robot = EventTerm(
-        func=mdp.randomize_actuator_gains,
-        mode="startup",
-        params={
-            "asset_cfg": SceneEntityCfg(
-                "robot", 
-                joint_names=[
-                    "FL_hip_joint",
-                    "FL_thigh_joint",
-                    "FL_calf_joint",
-                    "FR_hip_joint",
-                    "FR_thigh_joint",
-                    "FR_calf_joint",
-                    "RL_hip_joint",
-                    "RL_thigh_joint",
-                    "RL_calf_joint",
-                    "RR_hip_joint",
-                    "RR_thigh_joint",
-                    "RR_calf_joint"
-                ],),
-            "stiffness_distribution_params": (0.5, 2.0),
-            "damping_distribution_params": (0.5, 2.0),
-            "operation": "scale",
-            "distribution": "uniform",
-        },
-    )
-    # arm执行器增益随机化
-    randomize_actuator_gains_arm = EventTerm(
-        func=mdp.randomize_actuator_gains,
-        mode="startup",
-        params={
-            "asset_cfg": SceneEntityCfg(
-                "robot", 
-                joint_names=[
-                    "joint1",
-                    "joint2",
-                    "joint3",
-                    "joint4",
-                    "joint5",
-                    "joint6",
-                ],),
-            "stiffness_distribution_params": (0.8, 1.2),
-            "damping_distribution_params": (0.8, 1.2),
-            "operation": "scale",
-            "distribution": "uniform",
-        },
-    )
+    # # robot执行器增益随机化
+    # randomize_actuator_gains_robot = EventTerm(
+    #     func=mdp.randomize_actuator_gains,
+    #     mode="startup",
+    #     params={
+    #         "asset_cfg": SceneEntityCfg(
+    #             "robot", 
+    #             joint_names=[
+    #                 "FL_hip_joint",
+    #                 "FL_thigh_joint",
+    #                 "FL_calf_joint",
+    #                 "FR_hip_joint",
+    #                 "FR_thigh_joint",
+    #                 "FR_calf_joint",
+    #                 "RL_hip_joint",
+    #                 "RL_thigh_joint",
+    #                 "RL_calf_joint",
+    #                 "RR_hip_joint",
+    #                 "RR_thigh_joint",
+    #                 "RR_calf_joint"
+    #             ],),
+    #         "stiffness_distribution_params": (0.5, 2.0),
+    #         "damping_distribution_params": (0.5, 2.0),
+    #         "operation": "scale",
+    #         "distribution": "uniform",
+    #     },
+    # )
+    # # arm执行器增益随机化
+    # randomize_actuator_gains_arm = EventTerm(
+    #     func=mdp.randomize_actuator_gains,
+    #     mode="startup",
+    #     params={
+    #         "asset_cfg": SceneEntityCfg(
+    #             "robot", 
+    #             joint_names=[
+    #                 "joint1",
+    #                 "joint2",
+    #                 "joint3",
+    #                 "joint4",
+    #                 "joint5",
+    #                 "joint6",
+    #             ],),
+    #         "stiffness_distribution_params": (0.8, 1.2),
+    #         "damping_distribution_params": (0.8, 1.2),
+    #         "operation": "scale",
+    #         "distribution": "uniform",
+    #     },
+    # )
     # base初始状态随机化
     randomize_reset_base = EventTerm(
         func=mdp.reset_root_state_uniform,
@@ -841,12 +843,12 @@ class EventCfg:
             "asset_cfg": SceneEntityCfg("robot", body_names=["base"]),
             "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},
             "velocity_range": {
-                "x": (-0.5, 0.5),
-                "y": (-0.5, 0.5),
-                "z": (-0.1, 0.1),
-                "roll": (-0.2, 0.2),
-                "pitch": (-0.2, 0.2),
-                "yaw": (-0.2, 0.2),
+                "x": (-0.0, 0.0),
+                "y": (-0.0, 0.0),
+                "z": (-0.0, 0.0),
+                "roll": (-0.0, 0.0),
+                "pitch": (-0.0, 0.0),
+                "yaw": (-0.0, 0.0),
             },
         },
     )
@@ -877,7 +879,7 @@ class RewardsCfg:
         func=mdp.base_height_exp, 
         weight=0.0, 
         params={
-            "target_height": 0.0, 
+            "target_height": 0.4, 
             "std": math.sqrt(0.1), 
             "asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "sensor_cfg": SceneEntityCfg("height_scanner_base")
