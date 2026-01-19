@@ -60,7 +60,7 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.observations.policy.actions.scale = 1.0
         self.observations.policy.actions.clip = (-1.0, 1.0)
         self.observations.policy.base_velocity_command.scale = 1.0
-        self.observations.policy.base_velocity_command.clip = (-1.5, 1.5)
+        self.observations.policy.base_velocity_command.clip = (-0.5, 0.5)  # 与命令范围一致
         self.observations.policy.ee_twist_command.scale = 1.0
         self.observations.policy.ee_twist_command.clip = (-5.0, 5.0)
         self.observations.policy.feet_swing_height_command.scale = 1.0
@@ -98,7 +98,7 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.observations.critic.actions.scale = 1.0
         self.observations.critic.actions.clip = (-1.0, 1.0)
         self.observations.critic.base_velocity_command.scale = 1.0
-        self.observations.critic.base_velocity_command.clip = (-1.5, 1.5)
+        self.observations.critic.base_velocity_command.clip = (-0.5, 0.5)  # 与命令范围一致
         self.observations.critic.ee_twist_command.scale = 1.0
         self.observations.critic.ee_twist_command.clip = (-5.0, 5.0)
         self.observations.critic.feet_swing_height_command.scale = 1.0
@@ -121,7 +121,9 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         # loco
         self.rewards.base_linear_velocity.weight = 2.0
         self.rewards.base_angular_velocity.weight = 2.0
-        self.rewards.torso_height.weight = 0.5
+        self.rewards.torso_height.weight = 0.5  # 增加权重，强制机器人站立
+        self.rewards.torso_height.params["target_height"] = 0.33  # Go2 实际站立高度约 0.33m
+        # self.rewards.torso_height.params["std"] = 0.1  # 减小std，使高度更敏感 (原 sqrt(0.1)=0.316)
         self.rewards.base_roll_pitch_angles.weight = 0.1
         self.rewards.torso_linear_velocity.weight = 0.5
         self.rewards.torso_roll_pitch_velocities.weight = 2.5
@@ -131,6 +133,7 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.rewards.robot_action_rate.weight = 0.001
         self.rewards.robot_joint_torque.weight = 1e-5
         self.rewards.robot_joint_velocity.weight = 1e-4
+        # self.rewards.velocity_mismatch_penalty.weight = -2.0  # 不动惩罚：有速度命令但不动时惩罚
         # mani
         self.rewards.ee_position.weight = 5.0
         self.rewards.ee_orientation.weight = 4.0
@@ -162,6 +165,7 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
                 "robot_action_rate",
                 "robot_joint_torque",
                 "robot_joint_velocity"
+                # "velocity_mismatch_penalty"     # 新增不动惩罚
             ],
             "mani": [
                 "ee_position",
@@ -194,4 +198,8 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.curriculum.command_levels_ang_vel = None   # 不使用速度curriculum
 
         # ------------------------------Commands------------------------------
-        # 具体参数写在 cus_velocity_env_cfg.py 里
+        # 论文 Table 7: 速度命令范围 (单位: m/s, rad/s)
+        # lin_vel_x: [-0.25, 0.25], lin_vel_y: [-0.25, 0.25], ang_vel_z: [-0.25, 0.25]
+        self.commands.base_velocity.ranges.lin_vel_x = (-0.25, 0.25)
+        self.commands.base_velocity.ranges.lin_vel_y = (-0.25, 0.25)
+        self.commands.base_velocity.ranges.ang_vel_z = (-0.25, 0.25)

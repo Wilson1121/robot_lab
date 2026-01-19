@@ -841,7 +841,7 @@ class EventCfg:
         mode="reset",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=["base"]),
-            "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},
+            "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-0.0, 0.0)},
             "velocity_range": {
                 "x": (-0.0, 0.0),
                 "y": (-0.0, 0.0),
@@ -985,6 +985,17 @@ class RewardsCfg:
                         "RR_calf_joint"]),
         },
     )
+    # # 不动惩罚：有速度命令但不动时惩罚
+    # velocity_mismatch_penalty = RewTerm(
+    #     func=mdp.velocity_mismatch_penalty,
+    #     weight=0.0,  # 负权重，作为惩罚
+    #     params={
+    #         "command_name": "base_velocity",
+    #         "command_threshold": 0.1,   # 速度命令阈值
+    #         "velocity_threshold": 0.05, # 实际速度阈值
+    #         "asset_cfg": SceneEntityCfg("robot"),
+    #     },
+    # )
 
     ##############################################################################################################################
     # mani
@@ -1057,6 +1068,9 @@ class RewardsCfg:
             "contact_force_threshold": 1.0,
             # 如果只在平地训练，可以去掉 ground_sensor_names，直接用世界系 Z 高度
             "ground_sensor_names": ["FL_foot_scanner", "FR_foot_scanner", "RL_foot_scanner", "RR_foot_scanner"],
+            # 新增：关联速度命令，速度小于阈值时期望静止站立
+            "base_velocity_command_name": "base_velocity",
+            "velocity_threshold": 0.1,
         },
     )
     feet_air_time_variance = RewTerm(

@@ -20,6 +20,38 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
+def velocity_mismatch_penalty(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    command_threshold: float = 0.1,
+    velocity_threshold: float = 0.05,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Penalize not moving when velocity command is given.
+    
+    当有速度命令（|cmd| > command_threshold）但机器人实际速度很小（|vel| < velocity_threshold）时，
+    给予惩罚。这可以防止机器人学会"站着不动"的局部最优策略。
+    
+    返回值：
+        惩罚值（正数），当命令大但速度小时返回1.0，否则返回0.0
+    """
+    asset: RigidObject = env.scene[asset_cfg.name]
+    
+    # 获取速度命令和实际速度
+    vel_cmd = env.command_manager.get_command(command_name)
+    cmd_norm = torch.norm(vel_cmd[:, :2], dim=1)  # 线速度命令大小
+    
+    actual_vel = asset.data.root_lin_vel_b[:, :2]
+    vel_norm = torch.norm(actual_vel, dim=1)  # 实际线速度大小
+    
+    # 有命令但不动时惩罚
+    has_command = cmd_norm > command_threshold
+    not_moving = vel_norm < velocity_threshold
+    
+    penalty = (has_command & not_moving).float()
+    return penalty
+
+
 def track_lin_vel_xy_exp(
     env: ManagerBasedRLEnv, std: float, command_name: str, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
 ) -> torch.Tensor:
@@ -32,7 +64,7 @@ def track_lin_vel_xy_exp(
         dim=1,
     )
     reward = torch.exp(-lin_vel_error / std**2)
-    reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
+    # reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
     return reward
 
 
@@ -45,7 +77,7 @@ def track_ang_vel_z_exp(
     # compute the error
     ang_vel_error = torch.square(env.command_manager.get_command(command_name)[:, 2] - asset.data.root_ang_vel_b[:, 2])
     reward = torch.exp(-ang_vel_error / std**2)
-    reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
+    # reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
     return reward
 
 
@@ -502,7 +534,7 @@ def feet_air_time_paper(
     reward = torch.sum(last_air_time * first_contact, dim=1)
     if command_name is not None:
         reward *= torch.norm(env.command_manager.get_command(command_name), dim=1) > command_threshold
-    reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
+    # reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
     return reward
 
 
@@ -647,8 +679,14 @@ def feet_contact_paper(
     contact_force_threshold: float = 1.0,
     height_contact_epsilon: float = 1.0e-6,
     ground_sensor_names: Sequence[str] | None = None,
+    base_velocity_command_name: str | None = None,
+    velocity_threshold: float = 0.1,
 ) -> torch.Tensor:
-    """Foot contact schedule reward (paper Table 6)."""
+    """Foot contact schedule reward (paper Table 6).
+    
+    修改说明：当速度命令小于阈值时，期望所有脚都着地（静止站立），
+    避免在没有速度命令时仍然要求抬脚的问题。
+    """
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
     asset: RigidObject = env.scene[asset_cfg.name]
 
@@ -656,6 +694,13 @@ def feet_contact_paper(
     h_hat = env.command_manager.get_command(command_name)
     if h_hat.shape[-1] != len(asset_cfg.body_ids):
         raise ValueError("feet_contact_paper expects command to match the number of feet.")
+
+    # 检查速度命令：如果速度很小，期望全部站立（不要求抬脚）
+    if base_velocity_command_name is not None:
+        vel_cmd = env.command_manager.get_command(base_velocity_command_name)
+        vel_cmd_norm = torch.norm(vel_cmd[:, :3], dim=1, keepdim=True)  # 只看线速度+角速度
+        # 当速度命令小于阈值时，将 h_hat 置零（期望全部站立）
+        h_hat = torch.where(vel_cmd_norm < velocity_threshold, torch.zeros_like(h_hat), h_hat)
 
     # desired contact state: 1 = stance, 0 = swing
     c_des = (h_hat <= height_contact_epsilon).float()
@@ -699,7 +744,7 @@ def feet_contact_paper(
     stance_term = c_des * in_contact * torch.exp(-(vel_xy**2) / (vel_std**2))
 
     reward = torch.sum(swing_term + stance_term, dim=1)
-    reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
+    # reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
     return reward
 
 
@@ -940,7 +985,7 @@ def base_height_exp(
         adjusted_target_height = target_height
     height_error = torch.square(asset.data.root_pos_w[:, 2] - adjusted_target_height)
     reward = torch.exp(-height_error / std**2)
-    reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
+    # reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
     return reward
 
 # z方向速度惩罚
@@ -960,7 +1005,7 @@ def lin_vel_z_exp(
     asset: RigidObject = env.scene[asset_cfg.name]
     vel_error = torch.square(asset.data.root_lin_vel_b[:, 2])
     reward = torch.exp(-vel_error / std**2)
-    reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
+    # reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
     return reward
 
 
@@ -993,7 +1038,7 @@ def ang_vel_xy_exp(env: ManagerBasedRLEnv, std: float, asset_cfg: SceneEntityCfg
     asset: RigidObject = env.scene[asset_cfg.name]
     err = torch.sum(torch.square(asset.data.root_ang_vel_b[:, :2]), dim=1)
     reward = torch.exp(-err / std**2)
-    reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
+    # reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
     return reward
 
 def undesired_contacts(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
@@ -1030,5 +1075,5 @@ def flat_orientation_exp(
     asset: RigidObject = env.scene[asset_cfg.name]
     orientation_error = torch.sum(torch.square(asset.data.projected_gravity_b[:, :2]), dim=1)
     reward = torch.exp(-orientation_error / std**2)
-    reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
+    # reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
     return reward
