@@ -13,6 +13,7 @@ from isaaclab.assets import Articulation
 from isaaclab.managers import CommandTerm, CommandTermCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.math import (
+    quat_apply,
     quat_from_euler_xyz,
     quat_inv,
     quat_mul,
@@ -366,6 +367,11 @@ class EndEffectorTwistTrajectoryCommand(CommandTerm):
         self._traj_time = torch.zeros(self.num_envs, device=self.device)
         self._use_local = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
+        # Command frame representation.
+        # - "base": torso/body frame (full orientation)
+        # - "control": gravity-aligned yaw-only torso frame (paper "control frame")
+        self.command_frame: str = str(getattr(cfg, "command_frame", "control"))
+
         # Output command: [v(3), w(3), goal_pos(3), goal_quat(4)]
         self._command = torch.zeros(self.num_envs, 13, device=self.device)
 
@@ -377,6 +383,16 @@ class EndEffectorTwistTrajectoryCommand(CommandTerm):
         torso_pos_w = self.robot.data.body_pos_w[:, self._torso_body_index]
         torso_quat_w = self.robot.data.body_quat_w[:, self._torso_body_index]
         return torso_pos_w, yaw_quat(torso_quat_w)
+
+    def set_command_frame(self, command_frame: str, env_ids: Sequence[int] | torch.Tensor | None = None) -> None:
+        """Update the representation frame for the exposed command vector."""
+        command_frame = str(command_frame)
+        if command_frame == self.command_frame:
+            return
+        if command_frame not in ("base", "control"):
+            raise ValueError(f"Unknown command_frame: {command_frame}. Expected 'base' or 'control'.")
+        self.command_frame = command_frame
+        self._update_command()
 
     def _get_body_pose_t(self, body_index: int) -> tuple[torch.Tensor, torch.Tensor]:
         task_pos_w, task_quat_w = self._get_task_frame_w()
@@ -491,9 +507,12 @@ class EndEffectorTwistTrajectoryCommand(CommandTerm):
         # Optional: expose norms of commands for logging
         self.metrics["ee_cmd_lin_vel_norm"] = torch.norm(self._command[:, 0:3], dim=-1)
         self.metrics["ee_cmd_ang_vel_norm"] = torch.norm(self._command[:, 3:6], dim=-1)
+        self.metrics["ee_cmd_frame_is_control"] = torch.full(
+            (self.num_envs,), float(self.command_frame == "control"), device=self.device
+        )
 
     # step函数被调用时会调用这个函数
-    # 13 维 command 都是在 task frame 下定义的
+    # 13 维 command 在 cfg.command_frame 指定的 frame 下定义
     def _update_command(self):
         # Advance time
         self._traj_time += self._dt
@@ -527,10 +546,22 @@ class EndEffectorTwistTrajectoryCommand(CommandTerm):
         rotvec = _quat_to_rotvec(q_err)
         w_ee = rotvec / self._dt
 
+        goal_pos = self._goal_pos_t
+        goal_quat = self._goal_quat_t
+
+        if self.command_frame == "base":
+            torso_quat_w = self.robot.data.body_quat_w[:, self._torso_body_index]
+            control_quat_w = yaw_quat(torso_quat_w)
+            q_control_to_base = quat_mul(quat_inv(torso_quat_w), control_quat_w)
+            v_ee = quat_apply(q_control_to_base, v_ee)
+            w_ee = quat_apply(q_control_to_base, w_ee)
+            goal_pos = quat_apply(q_control_to_base, goal_pos)
+            goal_quat = quat_mul(q_control_to_base, goal_quat)
+
         self._command[:, 0:3] = v_ee
         self._command[:, 3:6] = w_ee
-        self._command[:, 6:9] = self._goal_pos_t
-        self._command[:, 9:13] = self._goal_quat_t
+        self._command[:, 6:9] = goal_pos
+        self._command[:, 9:13] = goal_quat
 
 
 @configclass
@@ -544,6 +575,11 @@ class EndEffectorTwistTrajectoryCommandCfg(CommandTermCfg):
     ee_body_name: str = ""
     torso_body_name: str = ""
     shoulder_body_name: str = ""
+
+    # Command representation frame:
+    # - "base": torso/body frame (full orientation)
+    # - "control": gravity-aligned yaw-only torso frame (paper "control frame")
+    command_frame: str = "control"
 
     # Trajectory sampling
     # 目标位置采样球半径（球心在肩部）

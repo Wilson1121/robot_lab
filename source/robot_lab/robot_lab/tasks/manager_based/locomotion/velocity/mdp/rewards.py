@@ -112,7 +112,9 @@ class EndEffectorPositionReward(ManagerTermBase):
     """End-effector position tracking reward using desired twist (paper Eq. for r_EE^t).
 
     The target position is r_EE^{t-1} + v_hat_EE * dt, where v_hat_EE comes from the command.
-    All positions/velocities are computed in the task frame (torso yaw-aligned).
+    Positions/velocities are computed in the same frame as the command representation:
+    - command_frame="control": gravity-aligned yaw-only torso frame (paper "control frame")
+    - command_frame="base": torso/body frame (full orientation)
     """
 
     def __init__(self, cfg: RewTerm, env: ManagerBasedRLEnv):
@@ -130,9 +132,18 @@ class EndEffectorPositionReward(ManagerTermBase):
         self._ee_body_id = self._ee_body_cfg.body_ids[0]
         self._torso_body_id = self._torso_body_cfg.body_ids[0]
         self._prev_ee_pos_t = torch.zeros(self.num_envs, 3, device=self.device)
+        self._command_frame: str | None = None
+        self._command_name: str = str(cfg.params.get("command_name", ""))
 
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
-        ee_pos_t = self._get_ee_pos_t()
+        command_frame = self._command_frame or "control"
+        if self._command_name:
+            try:
+                term = self._env.command_manager.get_term(self._command_name)
+                command_frame = str(getattr(term, "command_frame", command_frame))
+            except Exception:
+                pass
+        ee_pos_t = self._get_ee_pos_t(command_frame)
         if env_ids is None:
             self._prev_ee_pos_t = ee_pos_t
             return
@@ -140,10 +151,13 @@ class EndEffectorPositionReward(ManagerTermBase):
             env_ids = env_ids.tolist()
         self._prev_ee_pos_t[env_ids] = ee_pos_t[env_ids]
 
-    def _get_ee_pos_t(self) -> torch.Tensor:
+    def _get_ee_pos_t(self, command_frame: str) -> torch.Tensor:
         torso_pos_w = self._asset.data.body_pos_w[:, self._torso_body_id]
         torso_quat_w = self._asset.data.body_quat_w[:, self._torso_body_id]
-        task_quat_w = yaw_quat(torso_quat_w)
+        if command_frame == "base":
+            task_quat_w = torso_quat_w
+        else:
+            task_quat_w = yaw_quat(torso_quat_w)
         ee_pos_w = self._asset.data.body_pos_w[:, self._ee_body_id]
         ee_quat_w = self._asset.data.body_quat_w[:, self._ee_body_id]
         ee_pos_t, _ = math_utils.subtract_frame_transforms(torso_pos_w, task_quat_w, ee_pos_w, ee_quat_w)
@@ -157,7 +171,12 @@ class EndEffectorPositionReward(ManagerTermBase):
         ee_body_cfg: SceneEntityCfg,
         torso_body_cfg: SceneEntityCfg,
     ) -> torch.Tensor:
-        ee_pos_t = self._get_ee_pos_t()
+        command_term = env.command_manager.get_term(command_name)
+        command_frame = str(getattr(command_term, "command_frame", "control"))
+        ee_pos_t = self._get_ee_pos_t(command_frame)
+        if self._command_frame != command_frame:
+            self._command_frame = command_frame
+            self._prev_ee_pos_t = ee_pos_t
         v_hat = env.command_manager.get_command(command_name)[:, 0:3]
         pos_pred = self._prev_ee_pos_t + v_hat * self._dt
         pos_error = torch.sum(torch.square(ee_pos_t - pos_pred), dim=1)
@@ -185,9 +204,18 @@ class EndEffectorOrientationReward(ManagerTermBase):
         self._torso_body_id = self._torso_body_cfg.body_ids[0]
         self._prev_ee_quat_t = torch.zeros(self.num_envs, 4, device=self.device)
         self._prev_ee_quat_t[:, 0] = 1.0
+        self._command_frame: str | None = None
+        self._command_name: str = str(cfg.params.get("command_name", ""))
 
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
-        ee_quat_t = self._get_ee_quat_t()
+        command_frame = self._command_frame or "control"
+        if self._command_name:
+            try:
+                term = self._env.command_manager.get_term(self._command_name)
+                command_frame = str(getattr(term, "command_frame", command_frame))
+            except Exception:
+                pass
+        ee_quat_t = self._get_ee_quat_t(command_frame)
         if env_ids is None:
             self._prev_ee_quat_t = ee_quat_t
             return
@@ -195,10 +223,13 @@ class EndEffectorOrientationReward(ManagerTermBase):
             env_ids = env_ids.tolist()
         self._prev_ee_quat_t[env_ids] = ee_quat_t[env_ids]
 
-    def _get_ee_quat_t(self) -> torch.Tensor:
+    def _get_ee_quat_t(self, command_frame: str) -> torch.Tensor:
         torso_pos_w = self._asset.data.body_pos_w[:, self._torso_body_id]
         torso_quat_w = self._asset.data.body_quat_w[:, self._torso_body_id]
-        task_quat_w = yaw_quat(torso_quat_w)
+        if command_frame == "base":
+            task_quat_w = torso_quat_w
+        else:
+            task_quat_w = yaw_quat(torso_quat_w)
         ee_pos_w = self._asset.data.body_pos_w[:, self._ee_body_id]
         ee_quat_w = self._asset.data.body_quat_w[:, self._ee_body_id]
         _, ee_quat_t = math_utils.subtract_frame_transforms(torso_pos_w, task_quat_w, ee_pos_w, ee_quat_w)
@@ -212,7 +243,12 @@ class EndEffectorOrientationReward(ManagerTermBase):
         ee_body_cfg: SceneEntityCfg,
         torso_body_cfg: SceneEntityCfg,
     ) -> torch.Tensor:
-        ee_quat_t = self._get_ee_quat_t()
+        command_term = env.command_manager.get_term(command_name)
+        command_frame = str(getattr(command_term, "command_frame", "control"))
+        ee_quat_t = self._get_ee_quat_t(command_frame)
+        if self._command_frame != command_frame:
+            self._command_frame = command_frame
+            self._prev_ee_quat_t = ee_quat_t
         w_hat = env.command_manager.get_command(command_name)[:, 3:6]
         quat_pred = math_utils.quat_box_plus(self._prev_ee_quat_t, w_hat * self._dt)
         rotvec_err = math_utils.quat_box_minus(ee_quat_t, quat_pred)

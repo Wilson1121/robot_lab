@@ -62,12 +62,12 @@ UNITREE_Go2Arm_CFG = ArticulationCfg(
     actuators={
         "leg_hip_thigh": DelayedPDActuatorCfg(
             joint_names_expr=[r".*_hip_joint", r".*_thigh_joint"],
-            effort_limit=23.7,
+            effort_limit=23.7,  
             velocity_limit=30.1,
-            stiffness=60.0,
-            damping=1.5,
+            stiffness=30.0,     # 60降为30
+            damping=1.0,        # 1.5降为0.5
             friction=0.0,
-            armature=0.01,
+            # armature=0.01,
             # min_delay=JOINT_MIN_DELAY_STEP,
             # max_delay=JOINT_MAX_DELAY_STEP,
         ),
@@ -75,10 +75,10 @@ UNITREE_Go2Arm_CFG = ArticulationCfg(
             joint_names_expr=[r".*_calf_joint"],
             effort_limit=45.43,
             velocity_limit=15.70,
-            stiffness=60.0,
-            damping=1.5,
+            stiffness=30.0,     # 60降为30
+            damping=1.0,        # 1.5降为0.5
             friction=0.0,
-            armature=0.01,
+            # armature=0.01,
             # min_delay=JOINT_MIN_DELAY_STEP,
             # max_delay=JOINT_MAX_DELAY_STEP,
         ),
@@ -86,10 +86,10 @@ UNITREE_Go2Arm_CFG = ArticulationCfg(
             joint_names_expr=[r"joint[1-6]"],
             effort_limit=50,
             velocity_limit=28,
-            stiffness=30.0,
-            damping=1.5,
+            stiffness=20.0,
+            damping=1.0,
             friction=0.0,
-            armature=0.01,
+            # armature=0.01,
             # min_delay=0,
             # max_delay=0,
         ),

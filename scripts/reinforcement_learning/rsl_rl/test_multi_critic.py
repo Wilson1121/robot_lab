@@ -17,6 +17,18 @@ parser = argparse.ArgumentParser(description="Test Multi-critic PPO configuratio
 parser.add_argument("--task", type=str, default="RobotLab-Isaac-Velocity-Rough-Go2Arm-v0", 
                     help="Name of the task.")
 parser.add_argument("--num_envs", type=int, default=2, help="Number of environments.")
+parser.add_argument(
+    "--ee_frame_switch_steps",
+    type=int,
+    default=None,
+    help="Override ee_twist command-frame curriculum switch step for a quick sanity check.",
+)
+parser.add_argument(
+    "--ee_frame_check_steps",
+    type=int,
+    default=10,
+    help="Number of env steps to run when checking ee_twist command-frame curriculum.",
+)
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -46,6 +58,12 @@ def test_multi_critic():
     # 1. Load agent config
     from isaaclab_tasks.utils import parse_env_cfg, load_cfg_from_registry
     env_cfg = parse_env_cfg(args_cli.task, device="cuda:0", num_envs=args_cli.num_envs)
+
+    if (
+        args_cli.ee_frame_switch_steps is not None
+        and getattr(getattr(env_cfg, "curriculum", None), "ee_twist_command_frame", None) is not None
+    ):
+        env_cfg.curriculum.ee_twist_command_frame.params["switch_after_steps"] = int(args_cli.ee_frame_switch_steps)
     
     # Load agent config
     agent_cfg = load_cfg_from_registry(args_cli.task, "rsl_rl_cfg_entry_point")
@@ -120,6 +138,27 @@ def test_multi_critic():
         print(f"    ❌ critic_names NOT in to_dict()!", flush=True)
         print(f"       Policy keys: {list(policy_cfg.keys())}", flush=True)
         return False
+
+    # 6. Optional: check EE twist command-frame curriculum wiring.
+    if args_cli.ee_frame_switch_steps is not None:
+        print("\n[6] Checking ee_twist command-frame curriculum...", flush=True)
+        if getattr(unwrapped_env.command_manager, "get_term", None) is None:
+            print("    ⚠️  command_manager.get_term not available, skipping.", flush=True)
+        else:
+            try:
+                ee_term = unwrapped_env.command_manager.get_term("ee_twist")
+            except Exception as e:
+                print(f"    ⚠️  ee_twist term not available: {e}", flush=True)
+            else:
+                before = getattr(ee_term, "command_frame", None)
+                for _ in range(int(args_cli.ee_frame_check_steps)):
+                    obs, reward, terminated, truncated, extras = env.step(actions)
+                after = getattr(ee_term, "command_frame", None)
+                print(
+                    f"    ee_twist.command_frame: {before} -> {after} "
+                    f"(switch_after_steps={args_cli.ee_frame_switch_steps})",
+                    flush=True,
+                )
     
     env.close()
     

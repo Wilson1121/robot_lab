@@ -256,6 +256,24 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
 
+    # debug: print action offsets to verify whether relative actions include a non-zero offset
+    try:
+        base_env = env.unwrapped
+        legs_term = base_env.action_manager._terms.get("legs")
+        arm_term = base_env.action_manager._terms.get("arm")
+        if legs_term is not None:
+            legs_offset = legs_term._offset
+            if hasattr(legs_offset, "shape"):
+                legs_offset = legs_offset[0]
+            print(f"[DEBUG] legs offset: {legs_offset}")
+        if arm_term is not None:
+            arm_offset = arm_term._offset
+            if hasattr(arm_offset, "shape"):
+                arm_offset = arm_offset[0]
+            print(f"[DEBUG] arm offset: {arm_offset}")
+    except Exception as exc:
+        print(f"[DEBUG] offset print skipped: {exc}")
+
     # convert to single-agent instance if required by the RL algorithm
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)

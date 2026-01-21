@@ -109,8 +109,9 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         # Action scale: 论文中使用的标准尺度约为 0.25
         # 过小的 scale (如 0.05) 会导致机器人无法有效控制关节，可能趴地
         # self.actions.joint_pos.scale = {".*_hip_joint": 0.125, "^(?!.*_hip_joint).*": 0.25}
-        self.actions.legs.scale = 0.25  # 修改：从 0.05 增加到 0.25
-        self.actions.arm.scale = 0.25   # 修改：从 0.05 增加到 0.25
+        # self.actions.legs.scale = 0.25  # 修改：从 0.05 增加到 0.25
+        # self.actions.arm.scale = 0.25   # 修改：从 0.05 增加到 0.25
+        # 具体参数写在 cus_velocity_env_cfg.py 里
         
 
         # ------------------------------Events------------------------------
@@ -120,8 +121,9 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         # 父类LocomotionVelocityRoughEnvCfg里已经定义了一些reward term，默认权重为0，这里修改其权重和参数
         # loco
         self.rewards.base_linear_velocity.weight = 2.0
+        # self.rewards.base_linear_velocity.weight = 5.0
         self.rewards.base_angular_velocity.weight = 2.0
-        self.rewards.torso_height.weight = 0.5  # 增加权重，强制机器人站立
+        self.rewards.torso_height.weight = 0.5  
         self.rewards.torso_height.params["target_height"] = 0.33  # Go2 实际站立高度约 0.33m
         # self.rewards.torso_height.params["std"] = 0.1  # 减小std，使高度更敏感 (原 sqrt(0.1)=0.316)
         self.rewards.base_roll_pitch_angles.weight = 0.1
@@ -130,17 +132,17 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.rewards.is_alive.weight = 0.05
         self.rewards.is_terminated.weight = -400.0
         self.rewards.undesired_robot_contacts.weight = -1.0
-        self.rewards.robot_action_rate.weight = 0.001
+        self.rewards.robot_action_rate.weight = 0.001 
         self.rewards.robot_joint_torque.weight = 1e-5
-        self.rewards.robot_joint_velocity.weight = 1e-4
+        self.rewards.robot_joint_velocity.weight = 1e-4  
         # self.rewards.velocity_mismatch_penalty.weight = -2.0  # 不动惩罚：有速度命令但不动时惩罚
         # mani
-        self.rewards.ee_position.weight = 5.0
-        self.rewards.ee_orientation.weight = 4.0
-        self.rewards.undesired_arm_contacts.weight = -1.0
-        self.rewards.arm_action_rate.weight = 0.1
-        self.rewards.arm_joint_torques.weight = 1e-5
-        self.rewards.arm_joint_velocities.weight = 1e-4
+        # self.rewards.ee_position.weight = 5.0
+        # self.rewards.ee_orientation.weight = 4.0
+        # self.rewards.undesired_arm_contacts.weight = -1.0
+        # self.rewards.arm_action_rate.weight = 0.1
+        # self.rewards.arm_joint_torques.weight = 1e-5
+        # self.rewards.arm_joint_velocities.weight = 1e-4
         # contact
         self.rewards.feet_contact_rough.weight = 1.0
         self.rewards.feet_air_time_variance.weight = -1.0
@@ -168,12 +170,12 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
                 # "velocity_mismatch_penalty"     # 新增不动惩罚
             ],
             "mani": [
-                "ee_position",
-                "ee_orientation",
-                "undesired_arm_contacts",
-                "arm_action_rate",
-                "arm_joint_torques",
-                "arm_joint_velocities"
+                # "ee_position",
+                # "ee_orientation",
+                # "undesired_arm_contacts",
+                # "arm_action_rate",
+                # "arm_joint_torques",
+                # "arm_joint_velocities"
             ],
             "contact": [
                 "feet_contact_rough",
@@ -192,14 +194,18 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.terminations.illegal_contact.params["sensor_cfg"].body_names = [rf"^(?!.*(?:{foot_pattern})$).+"]
 
         # ------------------------------Curriculums------------------------------
-        # self.curriculum.command_levels_lin_vel.params["range_multiplier"] = (0.2, 1.0)
-        # self.curriculum.command_levels_ang_vel.params["range_multiplier"] = (0.2, 1.0)
-        self.curriculum.command_levels_lin_vel = None   # 不使用速度curriculum
-        self.curriculum.command_levels_ang_vel = None   # 不使用速度curriculum
+        # Terrain curriculum (paper: flat -> moderately rough as performance improves).
+        # Start from the easiest terrain level.
+        self.scene.terrain.max_init_terrain_level = 0
+
+        # self.curriculum.command_levels_lin_vel = None   # 不使用速度curriculum
+        # self.curriculum.command_levels_ang_vel = None   # 不使用速度curriculum
 
         # ------------------------------Commands------------------------------
         # 论文 Table 7: 速度命令范围 (单位: m/s, rad/s)
         # lin_vel_x: [-0.25, 0.25], lin_vel_y: [-0.25, 0.25], ang_vel_z: [-0.25, 0.25]
-        self.commands.base_velocity.ranges.lin_vel_x = (-0.25, 0.25)
-        self.commands.base_velocity.ranges.lin_vel_y = (-0.25, 0.25)
-        self.commands.base_velocity.ranges.ang_vel_z = (-0.25, 0.25)
+        self.commands.base_velocity.ranges.lin_vel_x = (-0.3, 0.3)
+        self.commands.base_velocity.ranges.lin_vel_y = (-0.2, 0.2)
+        self.commands.base_velocity.ranges.ang_vel_z = (-0.3, 0.3)
+
+        self.commands.ee_twist.local_trajectory_probability = 0.8

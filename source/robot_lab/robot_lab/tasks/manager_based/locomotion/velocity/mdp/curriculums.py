@@ -94,3 +94,27 @@ def command_levels_ang_vel(
             base_velocity_ranges.ang_vel_z = new_ang_vel_z.tolist()
 
     return torch.tensor(base_velocity_ranges.ang_vel_z[1], device=env.device)
+
+
+def ee_twist_command_frame_switch(
+    env: ManagerBasedRLEnv,
+    env_ids: Sequence[int],
+    command_name: str = "ee_twist",
+    switch_after_steps: int = 72_000,
+    base_frame: str = "base",
+    control_frame: str = "control",
+) -> torch.Tensor:
+    """Switch EE twist command frame from base->control after a given global step count.
+
+    Paper ablation (Sec. 7.2.1): represent EE twist commands in the base frame initially, then
+    switch to the gravity-aligned yaw-only control frame after the robot learns stable walking.
+    """
+    term = env.command_manager.get_term(command_name)
+    target = base_frame if int(env.common_step_counter) < int(switch_after_steps) else control_frame
+    current = str(getattr(term, "command_frame", control_frame))
+    if current != target:
+        if hasattr(term, "set_command_frame"):
+            term.set_command_frame(target)
+        else:
+            setattr(term, "command_frame", target)
+    return torch.tensor(float(target == control_frame), device=env.device)

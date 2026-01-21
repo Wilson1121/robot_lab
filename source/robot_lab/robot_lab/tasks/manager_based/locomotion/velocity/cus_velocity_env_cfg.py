@@ -145,7 +145,8 @@ class CommandsCfg:
     # 基座速度命令
     base_velocity = mdp.UniformThresholdVelocityCommandCfg(
         asset_name="robot",
-        resampling_time_range=(10.0, 10.0),
+        # resampling_time_range=(10.0, 10.0),
+        resampling_time_range=(6.0, 8.0),
         rel_standing_envs=0.02,
         rel_heading_envs=1.0,
         heading_command=False,
@@ -160,19 +161,24 @@ class CommandsCfg:
     # 注意：ee_body_name / torso_body_name / shoulder_body_name 需与你的机器人 body_names 一致
     ee_twist = mdp.EndEffectorTwistTrajectoryCommandCfg(
         asset_name="robot",
-        resampling_time_range=(10.0, 10.0),   # 轨迹采用持续时间范围
+        # resampling_time_range=(10.0, 10.0),   # 轨迹采用持续时间范围
+        resampling_time_range=(4.0, 6.0),   # 轨迹采用持续时间范围
         ee_body_name="link6",
         torso_body_name="base",
         shoulder_body_name="link2",
         reject_cuboid=(-0.25, 0.25, -0.16, 0.16, -0.08, 0.20),  # torso和hip的最大外包络长方体（估计值）
         trajectory_duration_range=(3.0, 5.0),   # 轨迹时间范围
         local_trajectory_probability=0.5,
+        # Paper curriculum (Sec. 7.2.1): start with base-frame commands, then switch to control-frame.
+        command_frame="base",
     )
     # 足端摆动高度命令（论文 Eq. (5)）
     feet_swing_height = mdp.DesiredFeetSwingHeightCommandCfg(
-        resampling_time_range=(6.0, 6.0),
-        max_height=0.12,
-        gait_frequency=1.5,
+        # resampling_time_range=(6.0, 6.0),
+        resampling_time_range=(6.0, 8.0),   # 与base velocity对应
+        # max_height=0.12,
+        max_height=0.08,
+        gait_frequency=2.0,
         phase_offsets=(0.0, 0.5, 0.5, 0.0),  # [FL, FR, RL, RR]写死顺序了
         clip_to_positive=True,
     )
@@ -197,7 +203,9 @@ class ActionsCfg:
     """Action specifications for the MDP."""
     # 配置为增量式关节位置控制
     # 论文公式(2): q_target = q_current + action * scale (增量模式)
-    # use_zero_offset=True 时: offset=0, 公式匹配论文
+    # RelativeJointPositionAction 实际为:
+    #   q_target = q_current + (action * scale + offset)
+    # use_zero_offset=True 会强制 offset=0（推荐，匹配论文增量模式并避免误配置 offset）
     legs = mdp.RelativeJointPositionActionCfg(
         asset_name="robot",
         joint_names=[
@@ -214,8 +222,9 @@ class ActionsCfg:
             "RR_thigh_joint",
             "RR_calf_joint"
         ],
-        scale=0.25,
-        use_zero_offset=True,  # True: q_target = q_current + action * scale (论文增量模式)
+        # 经验：交叉腿常由髋外展/内收关节过大动作引起，单独降低 hip 的 scale 更有效
+        scale={".*_hip_joint": 0.10, "^(?!.*_hip_joint).*": 0.25},  # 降低 hip 关节的 scale后，机器人不趴地
+        use_zero_offset=True,
         preserve_order=True,
     )
     arm = mdp.RelativeJointPositionActionCfg(
@@ -228,8 +237,8 @@ class ActionsCfg:
             "joint5",
             "joint6"
         ],
-        scale=0.25,
-        use_zero_offset=True,  # True: q_target = q_current + action * scale (论文增量模式)
+        scale=0.10,
+        use_zero_offset=True,
         preserve_order=True,
     )
 
@@ -668,9 +677,12 @@ class EventCfg:
         mode="reset",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
-            "static_friction_range": (0.5, 1.2),
-            "dynamic_friction_range": (0.3, 1.2),
-            "restitution_range": (0.0, 0.2),
+            # "static_friction_range": (0.5, 1.2),
+            # "dynamic_friction_range": (0.3, 1.2),
+            # "restitution_range": (0.0, 0.2),
+            "static_friction_range": (1.0, 1.0),
+            "dynamic_friction_range": (1.0, 1.1),
+            "restitution_range": (0.0, 0.0),
             "num_buckets": 64,
         },
     )
@@ -680,7 +692,8 @@ class EventCfg:
         mode="reset",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=["base"]),
-            "mass_distribution_params": (-5.0, 5.0),
+            # "mass_distribution_params": (-2.0, 2.0),
+            "mass_distribution_params": (-0.0, 0.0),
             "operation": "add",
             "recompute_inertia": True,
         },
@@ -691,7 +704,8 @@ class EventCfg:
         mode="reset",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=["link6"]),
-            "mass_distribution_params": (0.0, 1.8),
+            # "mass_distribution_params": (0.0, 1.8),
+            "mass_distribution_params": (0.0, 0.0),
             "operation": "add",
             "recompute_inertia": True,
         },
@@ -702,8 +716,10 @@ class EventCfg:
         mode="reset",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=["base"]),
-            "force_range": (-50.0, 50.0),
-            "torque_range": (-20.0, 20.0),
+            # "force_range": (-50.0, 50.0),
+            # "torque_range": (-20.0, 20.0),
+            "force_range": (-0.0, 0.0),
+            "torque_range": (-0.0, 0.0),
         },
     )
     # 末端执行器外力/力矩随机化
@@ -712,7 +728,8 @@ class EventCfg:
         mode="reset",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=["link6"]),
-            "force_range": (-3.0, 3.0),
+            # "force_range": (-3.0, 3.0),
+            "force_range": (-0.0, 0.0),
             "torque_range": (0.0, 0.0),
         },
     )
@@ -724,8 +741,10 @@ class EventCfg:
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=["base"]),
             "velocity_range": {
-                "x": (-0.2, 0.2),   # m/s
-                "y": (-0.2, 0.2),
+                "x": (-0.0, 0.0),   # m/s
+                "y": (-0.0, 0.0),
+                # "x": (-0.2, 0.2),   # m/s
+                # "y": (-0.2, 0.2),
                 # "z": (-0.2, 0.2),
                 # "roll": (-0.2, 0.2),   # rad/s
                 # "pitch": (-0.2, 0.2),
@@ -733,26 +752,14 @@ class EventCfg:
             },
         },
     )
-
-
-    # Skip: inertia updated via mass randomization by setting recompute_inertia=True
-    # randomize_rigid_body_inertia = EventTerm(
-    #     func=mdp.randomize_rigid_body_inertia,
-    #     mode="startup",
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-    #         "inertia_distribution_params": (0.5, 1.5),
-    #         "operation": "scale",
-    #     },
-    # )
-
     # 质心位置随机化（只加了base，其他link也可加）
     randomize_com_positions = EventTerm(
         func=mdp.randomize_rigid_body_com,
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=["base"]),
-            "com_range": {"x": (-0.03, 0.03), "y": (-0.03, 0.03), "z": (-0.02, 0.02)},
+            # "com_range": {"x": (-0.03, 0.03), "y": (-0.03, 0.03), "z": (-0.02, 0.02)},
+            "com_range": {"x": (-0.00, 0.00), "y": (-0.00, 0.00), "z": (-0.00, 0.00)},
         },
     )
     # 关节初始状态随机化
@@ -783,10 +790,41 @@ class EventCfg:
                     "joint5",
                     "joint6",
                 ],),
-            "position_range": (-0.1, 0.1),
+            # "position_range": (-0.1, 0.1),
+            "position_range": (-0.0, 0.0),
             "velocity_range": ( 0.0, 0.0),
         },
     )
+    # base初始状态随机化
+    randomize_reset_base = EventTerm(
+        func=mdp.reset_root_state_uniform,
+        mode="reset",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=["base"]),
+            "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-0.0, 0.0)},
+            "velocity_range": {
+                "x": (-0.0, 0.0),
+                "y": (-0.0, 0.0),
+                "z": (-0.0, 0.0),
+                "roll": (-0.0, 0.0),
+                "pitch": (-0.0, 0.0),
+                "yaw": (-0.0, 0.0),
+            },
+        },
+    )
+
+
+    # Skip: inertia updated via mass randomization by setting recompute_inertia=True
+    # randomize_rigid_body_inertia = EventTerm(
+    #     func=mdp.randomize_rigid_body_inertia,
+    #     mode="startup",
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+    #         "inertia_distribution_params": (0.5, 1.5),
+    #         "operation": "scale",
+    #     },
+    # )
+
     # # robot执行器增益随机化
     # randomize_actuator_gains_robot = EventTerm(
     #     func=mdp.randomize_actuator_gains,
@@ -835,23 +873,7 @@ class EventCfg:
     #         "distribution": "uniform",
     #     },
     # )
-    # base初始状态随机化
-    randomize_reset_base = EventTerm(
-        func=mdp.reset_root_state_uniform,
-        mode="reset",
-        params={
-            "asset_cfg": SceneEntityCfg("robot", body_names=["base"]),
-            "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-0.0, 0.0)},
-            "velocity_range": {
-                "x": (-0.0, 0.0),
-                "y": (-0.0, 0.0),
-                "z": (-0.0, 0.0),
-                "roll": (-0.0, 0.0),
-                "pitch": (-0.0, 0.0),
-                "yaw": (-0.0, 0.0),
-            },
-        },
-    )
+
 
 
 @configclass
@@ -1070,7 +1092,7 @@ class RewardsCfg:
             "ground_sensor_names": ["FL_foot_scanner", "FR_foot_scanner", "RL_foot_scanner", "RR_foot_scanner"],
             # 新增：关联速度命令，速度小于阈值时期望静止站立
             "base_velocity_command_name": "base_velocity",
-            "velocity_threshold": 0.1,
+            "velocity_threshold": 0.02,
         },
     )
     feet_air_time_variance = RewTerm(
@@ -1087,7 +1109,7 @@ class RewardsCfg:
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot","FR_foot","RL_foot","RR_foot"]),
             "command_name": "base_velocity",    # 有速度命令时只才奖励抬脚
-            "command_threshold": 0.1,
+            "command_threshold": 0.02,
         },
     )
 
@@ -1123,21 +1145,34 @@ class CurriculumCfg:
 
     terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
 
-    command_levels_lin_vel = CurrTerm(
-        func=mdp.command_levels_lin_vel,
+    # EE twist command frame curriculum (paper Sec. 7.2.1):
+    # represent commands in base frame until a set number of iterations, then switch to control frame.
+    ee_twist_command_frame = CurrTerm(
+        func=mdp.ee_twist_command_frame_switch,
         params={
-            "reward_term_name": "track_lin_vel_xy_exp",
-            "range_multiplier": (0.1, 1.0),
+            "command_name": "ee_twist",
+            # Paper uses ~3000 PPO iterations; with rsl_rl num_steps_per_env=24 => 3000*24 env steps.
+            "switch_after_steps": 3000 * 24,
+            "base_frame": "base",
+            "control_frame": "control",
         },
     )
 
-    command_levels_ang_vel = CurrTerm(
-        func=mdp.command_levels_ang_vel,
-        params={
-            "reward_term_name": "track_ang_vel_z_exp",
-            "range_multiplier": (0.1, 1.0),
-        },
-    )
+    # command_levels_lin_vel = CurrTerm(
+    #     func=mdp.command_levels_lin_vel,
+    #     params={
+    #         "reward_term_name": "track_lin_vel_xy_exp",
+    #         "range_multiplier": (0.1, 1.0),
+    #     },
+    # )
+
+    # command_levels_ang_vel = CurrTerm(
+    #     func=mdp.command_levels_ang_vel,
+    #     params={
+    #         "reward_term_name": "track_ang_vel_z_exp",
+    #         "range_multiplier": (0.1, 1.0),
+    #     },
+    # )
 
 
 ##
@@ -1168,10 +1203,10 @@ class LocomotionVelocityRoughEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         """Post initialization."""
         # general settings
-        self.decimation = 4
+        self.decimation = 8     # 4->8
         self.episode_length_s = 20.0
         # simulation settings
-        self.sim.dt = 0.005
+        self.sim.dt = 0.0025    # 0.005->0.0025,变为400Hz
         self.sim.render_interval = self.decimation
         self.sim.physics_material = self.scene.terrain.physics_material
         self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
