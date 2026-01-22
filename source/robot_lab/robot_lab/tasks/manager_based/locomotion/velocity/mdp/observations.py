@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from isaaclab.assets import Articulation
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import ContactSensor
+from isaaclab.utils.math import quat_apply_inverse
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv, ManagerBasedRLEnv
@@ -177,29 +178,36 @@ def base_external_push_velocity(
     env: ManagerBasedEnv,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ) -> torch.Tensor:
-    """Returns the current root velocity which includes push disturbances.
+    """Returns the last push delta sampled by push_by_setting_velocity (base frame).
     
-    This returns the root linear and angular velocity in world frame.
-    When push_by_setting_velocity is applied, these values reflect the disturbance.
+    This reads the cached delta set by the push event and rotates it into the base frame.
+    If no push happened on the current step, returns zeros.
     
     Note:
-        This returns the actual velocity, not the push delta. To get the pure push
-        value, you would need to track the velocity before and after the push event.
+        The cache is populated by the local push_by_setting_velocity override in
+        mdp/events.py. If that event is not used, this observation will be zeros.
     
     Args:
         env: The environment instance.
         asset_cfg: The configuration for the robot asset.
     
     Returns:
-        Tensor of shape (num_envs, 6) with [lin_vel_x, lin_vel_y, lin_vel_z, ang_vel_x, ang_vel_y, ang_vel_z].
+        Tensor of shape (num_envs, 6) with [lin_vel_x, lin_vel_y, lin_vel_z, ang_vel_x, ang_vel_y, ang_vel_z]
+        in the base frame.
     """
     asset: Articulation = env.scene[asset_cfg.name]
     
-    # Get root velocity in world frame: (num_envs, 6)
-    # Contains [lin_vel_x, lin_vel_y, lin_vel_z, ang_vel_x, ang_vel_y, ang_vel_z]
-    root_vel = asset.data.root_vel_w
-    
-    return root_vel
+    delta_w = getattr(env, "_last_push_delta_w", None)
+    if delta_w is None or getattr(env, "_last_push_step", None) != env._sim_step_counter:
+        return torch.zeros((env.scene.num_envs, 6), device=asset.device, dtype=asset.data.root_vel_w.dtype)
+    if delta_w.device != asset.device:
+        delta_w = delta_w.to(asset.device)
+        setattr(env, "_last_push_delta_w", delta_w)
+
+    root_quat_w = asset.data.root_quat_w
+    lin_b = quat_apply_inverse(root_quat_w, delta_w[:, :3])
+    ang_b = quat_apply_inverse(root_quat_w, delta_w[:, 3:6])
+    return torch.cat([lin_b, ang_b], dim=-1)
 
 
 def base_mass_disturbance(

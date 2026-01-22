@@ -223,7 +223,7 @@ class ActionsCfg:
             "RR_calf_joint"
         ],
         # 经验：交叉腿常由髋外展/内收关节过大动作引起，单独降低 hip 的 scale 更有效
-        scale={".*_hip_joint": 0.10, "^(?!.*_hip_joint).*": 0.25},  # 降低 hip 关节的 scale后，机器人不趴地
+        scale={".*_hip_joint": 0.08, "^(?!.*_hip_joint).*": 0.25},  # 降低 hip 关节的 scale后，机器人不趴地
         use_zero_offset=True,
         preserve_order=True,
     )
@@ -681,7 +681,7 @@ class EventCfg:
             # "dynamic_friction_range": (0.3, 1.2),
             # "restitution_range": (0.0, 0.2),
             "static_friction_range": (1.0, 1.0),
-            "dynamic_friction_range": (1.0, 1.1),
+            "dynamic_friction_range": (1.0, 1.0),
             "restitution_range": (0.0, 0.0),
             "num_buckets": 64,
         },
@@ -693,7 +693,7 @@ class EventCfg:
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=["base"]),
             # "mass_distribution_params": (-2.0, 2.0),
-            "mass_distribution_params": (-0.0, 0.0),
+            "mass_distribution_params": (-2.0, 2.0),
             "operation": "add",
             "recompute_inertia": True,
         },
@@ -713,16 +713,16 @@ class EventCfg:
     # 基座外力/力矩随机化
     randomize_apply_external_force_torque_base = EventTerm(
         func=mdp.apply_external_force_torque,
-        mode="reset",
+        mode="reset",   # 每个 Episode 开始时（环境重置时），随机采样一个力和力矩，并持续施加直到该 Episode 结束
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=["base"]),
             # "force_range": (-50.0, 50.0),
             # "torque_range": (-20.0, 20.0),
-            "force_range": (-0.0, 0.0),
-            "torque_range": (-0.0, 0.0),
+            "force_range": (-20.0, 20.0),
+            "torque_range": (-10.0, 10.0),
         },
     )
-    # 末端执行器外力/力矩随机化
+    # EE外力/力矩随机化
     randomize_apply_external_force_torque_ee = EventTerm(
         func=mdp.apply_external_force_torque,
         mode="reset",
@@ -737,12 +737,12 @@ class EventCfg:
     randomize_push_robot = EventTerm(
         func=mdp.push_by_setting_velocity,
         mode="interval",
-        interval_range_s=(10.0, 15.0),
+        interval_range_s=(10.0, 10.0),
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=["base"]),
             "velocity_range": {
-                "x": (-0.0, 0.0),   # m/s
-                "y": (-0.0, 0.0),
+                "x": (-0.2, 0.2),   # m/s
+                "y": (-0.1, 0.1),
                 # "x": (-0.2, 0.2),   # m/s
                 # "y": (-0.2, 0.2),
                 # "z": (-0.2, 0.2),
@@ -758,8 +758,8 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=["base"]),
-            # "com_range": {"x": (-0.03, 0.03), "y": (-0.03, 0.03), "z": (-0.02, 0.02)},
-            "com_range": {"x": (-0.00, 0.00), "y": (-0.00, 0.00), "z": (-0.00, 0.00)},
+            "com_range": {"x": (-0.03, 0.03), "y": (-0.03, 0.03), "z": (-0.02, 0.02)},
+            # "com_range": {"x": (-0.00, 0.00), "y": (-0.00, 0.00), "z": (-0.00, 0.00)},
         },
     )
     # 关节初始状态随机化
@@ -790,8 +790,8 @@ class EventCfg:
                     "joint5",
                     "joint6",
                 ],),
-            # "position_range": (-0.1, 0.1),
-            "position_range": (-0.0, 0.0),
+            "position_range": (-0.1, 0.1),
+            # "position_range": (-0.0, 0.0),
             "velocity_range": ( 0.0, 0.0),
         },
     )

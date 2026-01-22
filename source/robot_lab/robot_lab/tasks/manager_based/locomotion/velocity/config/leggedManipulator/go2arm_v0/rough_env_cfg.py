@@ -42,67 +42,88 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.scene.RR_foot_scanner.prim_path = "{ENV_REGEX_NS}/Robot/" + self.foot_link_name[3]
 
         # ------------------------------Observations------------------------------
+        # 按照 cus_velocity_env_cfg.py 中 obs 配置的顺序
 
         # Policy observations scale and clip configuration
-        # 按照 cus_velocity_env_cfg.py 中 obs 配置的顺序
         self.observations.policy.joint_pos_history.scale = 1.0
         self.observations.policy.joint_pos_history.clip = (-3.14, 3.14)
         self.observations.policy.projected_gravity.scale = 1.0
         self.observations.policy.projected_gravity.clip = (-1.0, 1.0)
-        self.observations.policy.base_lin_vel.scale = 1.0
+        # self.observations.policy.base_lin_vel.scale = 1.0
+        self.observations.policy.base_lin_vel.scale = 2.0
         self.observations.policy.base_lin_vel.clip = (-5.0, 5.0)
-        self.observations.policy.base_ang_vel.scale = 1.0
+        # self.observations.policy.base_ang_vel.scale = 1.0
+        self.observations.policy.base_ang_vel.scale = 0.2
         self.observations.policy.base_ang_vel.clip = (-5.0, 5.0)
         self.observations.policy.joint_pos.scale = 1.0
         self.observations.policy.joint_pos.clip = (-3.14, 3.14)
-        self.observations.policy.joint_vel.scale = 1.0
+        # self.observations.policy.joint_vel.scale = 1.0
+        self.observations.policy.joint_vel.scale = 0.1
         self.observations.policy.joint_vel.clip = (-20.0, 20.0)
         self.observations.policy.actions.scale = 1.0
         self.observations.policy.actions.clip = (-1.0, 1.0)
-        self.observations.policy.base_velocity_command.scale = 1.0
-        self.observations.policy.base_velocity_command.clip = (-0.5, 0.5)  # 与命令范围一致
-        self.observations.policy.ee_twist_command.scale = 1.0
+        # self.observations.policy.base_velocity_command.scale = 1.0
+        self.observations.policy.base_velocity_command.scale = 2.0
+        self.observations.policy.base_velocity_command.clip = (-5.0, 5.0)
+        # self.observations.policy.ee_twist_command.scale = 1.0
+        self.observations.policy.ee_twist_command.scale = 2.0
         self.observations.policy.ee_twist_command.clip = (-5.0, 5.0)
-        self.observations.policy.feet_swing_height_command.scale = 1.0
-        self.observations.policy.feet_swing_height_command.clip = (0.0, 0.2)
+        # self.observations.policy.feet_swing_height_command.scale = 1.0
+        # self.observations.policy.feet_swing_height_command.clip = (0.0, 0.2)
+        self.observations.policy.feet_swing_height_command.scale = 10.0
+        self.observations.policy.feet_swing_height_command.clip = (0.0, 5.0)
+
 
         # Critic observations scale and clip configuration
         self.observations.critic.joint_pos_history.scale = 1.0
         self.observations.critic.joint_pos_history.clip = (-3.14, 3.14)
         self.observations.critic.projected_gravity.scale = 1.0
         self.observations.critic.projected_gravity.clip = (-1.0, 1.0)
-        self.observations.critic.base_lin_vel.scale = 1.0
+        # self.observations.critic.base_lin_vel.scale = 1.0
+        self.observations.critic.base_lin_vel.scale = 2.0
         self.observations.critic.base_lin_vel.clip = (-5.0, 5.0)
-        self.observations.critic.base_ang_vel.scale = 1.0
+        # self.observations.critic.base_ang_vel.scale = 1.0
+        self.observations.critic.base_ang_vel.scale = 0.2
         self.observations.critic.base_ang_vel.clip = (-5.0, 5.0)
         self.observations.critic.joint_pos.scale = 1.0
         self.observations.critic.joint_pos.clip = (-3.14, 3.14)
-        self.observations.critic.joint_vel.scale = 1.0
+        # self.observations.critic.joint_vel.scale = 1.0
+        self.observations.critic.joint_vel.scale = 0.1
         self.observations.critic.joint_vel.clip = (-20.0, 20.0)
+
         self.observations.critic.feet_contact_state.scale = 1.0
         self.observations.critic.feet_contact_state.clip = (-1.0, 1.0)
         self.observations.critic.static_friction.scale = 1.0
         self.observations.critic.static_friction.clip = (0.0, 2.0)
         self.observations.critic.feet_air_time.scale = 1.0
         self.observations.critic.feet_air_time.clip = (0.0, 2.0)
-        self.observations.critic.base_external_wrench.scale = 1.0
+        # self.observations.critic.base_external_wrench.scale = 1.0
+        self.observations.critic.base_external_wrench.scale = 0.02
         self.observations.critic.base_external_wrench.clip = (-100.0, 100.0)   
-        self.observations.critic.base_external_push_velocity.scale = 1.0
+        # self.observations.critic.base_external_push_velocity.scale = 1.0
+        self.observations.critic.base_external_push_velocity.scale = 2.0
         self.observations.critic.base_external_push_velocity.clip = (-10.0, 10.0)
-        self.observations.critic.base_mass_disturbance.scale = 1.0
+        # self.observations.critic.base_mass_disturbance.scale = 1.0
+        self.observations.critic.base_mass_disturbance.scale = 0.5
         self.observations.critic.base_mass_disturbance.clip = (-10.0, 10.0)
-        self.observations.critic.ee_external_wrench.scale = 1.0
+        # self.observations.critic.ee_external_wrench.scale = 1.0
+        self.observations.critic.ee_external_wrench.scale = 0.3
         self.observations.critic.ee_external_wrench.clip = (-20.0, 20.0)   # 改小点
-        self.observations.critic.ee_mass_disturbance.scale = 1.0
+        # self.observations.critic.ee_mass_disturbance.scale = 1.0
+        self.observations.critic.ee_mass_disturbance.scale = 0.5
         self.observations.critic.ee_mass_disturbance.clip = (-10.0, 10.0)
         self.observations.critic.actions.scale = 1.0
         self.observations.critic.actions.clip = (-1.0, 1.0)
-        self.observations.critic.base_velocity_command.scale = 1.0
-        self.observations.critic.base_velocity_command.clip = (-0.5, 0.5)  # 与命令范围一致
-        self.observations.critic.ee_twist_command.scale = 1.0
+        # self.observations.critic.base_velocity_command.scale = 1.0
+        self.observations.critic.base_velocity_command.scale = 2.0
+        self.observations.critic.base_velocity_command.clip = (-5.0, 5.0)
+        # self.observations.critic.ee_twist_command.scale = 1.0
+        self.observations.critic.ee_twist_command.scale = 2.0
         self.observations.critic.ee_twist_command.clip = (-5.0, 5.0)
-        self.observations.critic.feet_swing_height_command.scale = 1.0
-        self.observations.critic.feet_swing_height_command.clip = (0.0, 0.2)
+        # self.observations.critic.feet_swing_height_command.scale = 1.0
+        # self.observations.critic.feet_swing_height_command.clip = (0.0, 0.2)
+        self.observations.critic.feet_swing_height_command.scale = 10.0
+        self.observations.critic.feet_swing_height_command.clip = (0.0, 5.0)
         
 
         # ------------------------------Actions------------------------------
@@ -120,7 +141,7 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         # ------------------------------Rewards------------------------------
         # 父类LocomotionVelocityRoughEnvCfg里已经定义了一些reward term，默认权重为0，这里修改其权重和参数
         # loco
-        self.rewards.base_linear_velocity.weight = 2.0
+        self.rewards.base_linear_velocity.weight = 10.0  # 2.0->10.0
         # self.rewards.base_linear_velocity.weight = 5.0
         self.rewards.base_angular_velocity.weight = 2.0
         self.rewards.torso_height.weight = 0.5  

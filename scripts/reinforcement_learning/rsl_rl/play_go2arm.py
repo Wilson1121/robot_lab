@@ -108,25 +108,26 @@ from rl_utils import camera_follow
 
 def _disable_randomizations(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg) -> None:
     """Disable randomization/curriculum terms for play."""
-    if hasattr(env_cfg, "observations"):
-        if hasattr(env_cfg.observations, "policy"):
-            env_cfg.observations.policy.enable_corruption = False
-        if hasattr(env_cfg.observations, "critic"):
-            env_cfg.observations.critic.enable_corruption = False
+    # 观测噪声
+    # if hasattr(env_cfg, "observations"):
+    #     if hasattr(env_cfg.observations, "policy"):
+    #         env_cfg.observations.policy.enable_corruption = False
+    #     if hasattr(env_cfg.observations, "critic"):
+    #         env_cfg.observations.critic.enable_corruption = False
 
     if hasattr(env_cfg, "events") and env_cfg.events is not None:
         for name in (
             "randomize_rigid_body_material",
-            "randomize_rigid_body_mass_base",
+            # "randomize_rigid_body_mass_base",
             "randomize_rigid_body_mass_ee",
-            "randomize_apply_external_force_torque_base",
+            # "randomize_apply_external_force_torque_base",
             "randomize_apply_external_force_torque_ee",
-            "randomize_push_robot",
-            "randomize_com_positions",
-            "randomize_reset_joints",
+            # "randomize_push_robot",
+            # "randomize_com_positions",
+            # "randomize_reset_joints",
             # "randomize_actuator_gains_robot",
             # "randomize_actuator_gains_arm",
-            "randomize_reset_base",
+            # "randomize_reset_base",
             # legacy names used in some configs
             # "randomize_apply_external_force_torque",
             # "push_robot",
