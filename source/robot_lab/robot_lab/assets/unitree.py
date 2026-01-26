@@ -50,7 +50,15 @@ UNITREE_Go2Arm_CFG = ArticulationCfg(
             ".*_thigh_joint": 0.8,
             ".*_calf_joint": -1.5,
             # Piper arm joints (joint1..joint6)
-            "joint[1-6]": 0.0,
+            # Avoid initializing at one-sided joint limits (joint2: [0, pi], joint3: [-2.967, 0]),
+            # otherwise reset randomization can clamp them at 0 and the arm gets stuck early in training.
+            # Keep the arm reasonably tucked to reduce early falls / illegal_contact terminations.
+            "joint1": 0.0,
+            "joint2": 0.8,
+            "joint3": -0.8,
+            "joint4": 0.0,
+            "joint5": 0.0,
+            "joint6": 0.0,
         },
         joint_vel={".*": 0.0},
     ),
@@ -86,7 +94,7 @@ UNITREE_Go2Arm_CFG = ArticulationCfg(
             joint_names_expr=[r"joint[1-6]"],
             effort_limit=50,
             velocity_limit=28,
-            stiffness=20.0,
+            stiffness=30.0,
             damping=1.0,
             friction=0.0,
             # armature=0.01,

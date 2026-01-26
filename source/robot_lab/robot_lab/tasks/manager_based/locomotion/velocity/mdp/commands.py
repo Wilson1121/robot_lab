@@ -460,6 +460,18 @@ class EndEffectorTwistTrajectoryCommand(CommandTerm):
         out = torch.zeros(n, 3, device=self.device)
         valid = torch.zeros(n, dtype=torch.bool, device=self.device)
 
+        # Optional: acceptance box for goal offsets relative to shoulder (in task frame).
+        # This is useful to avoid sampling obviously unreachable goals (e.g., behind the shoulder or far below it).
+        acc = getattr(self.cfg, "goal_offset_range", None)
+        if acc is not None:
+            acc_min = torch.tensor([acc[0], acc[2], acc[4]], device=self.device)
+            acc_max = torch.tensor([acc[1], acc[3], acc[5]], device=self.device)
+            fallback_offset = 0.5 * (acc_min + acc_max)
+        else:
+            acc_min = None
+            acc_max = None
+            fallback_offset = torch.zeros(3, device=self.device)
+
         # Cuboid rejection (in task frame, centered at torso/task origin)
         cub = self.cfg.reject_cuboid
         cub_min = torch.tensor([cub[0], cub[2], cub[4]], device=self.device)
@@ -479,17 +491,21 @@ class EndEffectorTwistTrajectoryCommand(CommandTerm):
 
             # Map to remaining slots
             rem_idx = remaining[inside]
+            offset = radius * samp
             pos = shoulder_pos_t[rem_idx] + radius * samp
 
             in_cuboid = torch.all((pos >= cub_min) & (pos <= cub_max), dim=-1)
             accept = ~in_cuboid
+            if acc_min is not None:
+                in_acc = torch.all((offset >= acc_min) & (offset <= acc_max), dim=-1)
+                accept = accept & in_acc
 
             out[rem_idx[accept]] = pos[accept]
             valid[rem_idx[accept]] = True
 
         # Fallback: if still invalid, just clamp to avoid NaNs
         if (~valid).any():
-            out[~valid] = shoulder_pos_t[~valid]
+            out[~valid] = shoulder_pos_t[~valid] + fallback_offset
 
         return out
 
@@ -715,6 +731,10 @@ class EndEffectorTwistTrajectoryCommandCfg(CommandTermCfg):
     # Trajectory sampling
     # 目标位置采样球半径（球心在肩部）
     position_sphere_radius: float = 0.5
+    # Optional acceptance cuboid for goal offsets relative to shoulder (task frame):
+    #   (xmin, xmax, ymin, ymax, zmin, zmax) on (goal_pos_t - shoulder_pos_t).
+    # If set to None, no additional acceptance constraint is applied.
+    goal_offset_range: tuple[float, float, float, float, float, float] | None = (0.05, 0.55, -0.25, 0.25, -0.05, 0.45)
     # Cuboid bounds in task frame to reject goals inside torso/hip region: (xmin, xmax, ymin, ymax, zmin, zmax)
     reject_cuboid: tuple[float, float, float, float, float, float] = (-0.25, 0.35, -0.25, 0.25, -0.25, 0.35)
     # 目标位置采样的最大尝试次数

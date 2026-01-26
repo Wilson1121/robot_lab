@@ -178,7 +178,13 @@ class CommandsCfg:
         ee_body_name="link6",
         torso_body_name="base",
         shoulder_body_name="link2",
+        # Make goal sampling more reachable for Go2Arm:
+        # sample around shoulder, but accept only a forward/up-ish offset box.
+        position_sphere_radius=0.4,
+        goal_offset_range=(0.10, 0.4, -0.30, 0.30, 0.0, 0.3),    # 相对于肩部的(xmin, xmax, ymin, ymax, zmin, zmax)
         reject_cuboid=(-0.25, 0.25, -0.16, 0.16, -0.08, 0.20),
+        max_sampling_tries=128,
+        orientation_perturb_bound = math.pi / 12.0,
         trajectory_duration_range=(10.0, 12.0),
         local_trajectory_probability=0.5,
         command_frame="base",
@@ -254,10 +260,31 @@ class ActionsCfg:
             "joint5",
             "joint6"
         ],
-        scale=0.20,
+        # Per-joint action scaling (rad/step for |action|=1.0 in relative position mode).
+        # Increase joint2/joint3 to make reaching easier (they contribute most to arm extension).
+        # Note: changing scales is NOT compatible with already-trained checkpoints.
+        scale={
+            r"^joint2$": 0.50,
+            r"^joint3$": 0.50,
+            r"^(?!joint[23]$).*": 0.20,
+        },
         use_zero_offset=True,
         preserve_order=True,
     )
+    # arm = mdp.RelativeJointPositionActionCfg(
+    #     asset_name="robot",
+    #     joint_names=[
+    #         "joint1",
+    #         "joint2",
+    #         "joint3",
+    #         "joint4",
+    #         "joint5",
+    #         "joint6"
+    #     ],
+    #     scale=0.20,
+    #     use_zero_offset=True,
+    #     preserve_order=True,
+    # )
 
 
 
@@ -394,86 +421,86 @@ class ObservationsCfg:
             clip=(-100.0, 100.0),
             scale=1.0,
         )
-        # Privileged info term: Feet contact state, 4 Dim
-        # Feet contact state: 足端接触状态（二值），4 Dim（四足机器人）
-        # 需要在子类中配置 body_names，如 ".*_foot"
-        feet_contact_state = ObsTerm(
-            func=mdp.feet_contact_state,
-            params={
-                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
-                "threshold": 1.0,
-            },
-            clip=(0.0, 1.0),
-            scale=1.0,
-        )
-        # Privileged info term: Static friction, 4 Dim ————————————————————————————————————————————————————————————————保持质疑
-        # Static friction: 静摩擦系数（域随机化量），4 Dim（四足机器人）
-        # 读取 randomize_rigid_body_material 随机化后的摩擦系数
-        # 需要在子类中配置 body_names，如 ".*_foot"
-        static_friction = ObsTerm(
-            func=mdp.static_friction,
-            params={"asset_cfg": SceneEntityCfg("robot", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])},
-            clip=(0.0, 2.0),
-            scale=1.0,
-        )
-        # Privileged info term: Feet air time, 4 Dim
-        # Feet air time: 足端滞空时间，4 Dim（四足机器人）
-        # 需要在子类中配置 body_names，如 ".*_foot"
-        # 注意：需要 ContactSensorCfg.track_air_time=True
-        feet_air_time = ObsTerm(
-            func=mdp_obs.feet_air_time,
-            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])},
-            clip=(0.0, 1.0),
-            scale=1.0,
-        )
-        # Privileged info term: Base external wrench, 6 Dim
-        # 基座外部力/力矩（域随机化量），由 randomize_apply_external_force_torque 设置
-        # 需要在子类中配置 body_names 为基座名称
-        base_external_wrench = ObsTerm(
-            func=mdp.base_external_wrench,
-            params={"asset_cfg": SceneEntityCfg("robot", body_names=["base"])},
-            clip=(-100.0, 100.0),
-            scale=1.0,
-        )
-        # Privileged info term: Base external push velocity, 6 Dim
-        # 基座外部推动速度（域随机化量），由 push_by_setting_velocity 设置
-        # 返回当前根速度（包含推动扰动）
-        # 需要在子类中配置 body_names 为基座名称（虽然函数内部读取的是 root_vel_w）
-        base_external_push_velocity = ObsTerm(
-            func=mdp.base_external_push_velocity,
-            params={"asset_cfg": SceneEntityCfg("robot", body_names=["base"])},
-            clip=(-10.0, 10.0),
-            scale=1.0,
-        )
-        # Privileged info term: Base mass disturbance, 1 Dim
-        # 基座质量扰动（域随机化量），由 randomize_rigid_body_mass 设置
-        # 返回当前质量与默认质量的差值
-        # 需要在子类中配置 body_names 为基座名称
-        base_mass_disturbance = ObsTerm(
-            func=mdp.base_mass_disturbance,
-            params={"asset_cfg": SceneEntityCfg("robot", body_names=["base"])},
-            clip=(-10.0, 10.0),
-            scale=1.0,
-        )
-        # Privileged info term: End-effector external wrench, 6 Dim
-        # 末端执行器外部力/力矩（域随机化量），由 randomize_apply_external_force_torque 设置
-        # 需要在子类中配置 body_names 为末端执行器名称
-        ee_external_wrench = ObsTerm(
-            func=mdp.ee_external_wrench,
-            params={"asset_cfg": SceneEntityCfg("robot", body_names=["link6"])},
-            clip=(-100.0, 100.0),
-            scale=1.0,
-        )
-        # Privileged info term: End-effector mass disturbance, 1 Dim
-        # 末端执行器质量扰动（域随机化量），由 randomize_rigid_body_mass 设置
-        # 返回当前质量与默认质量的差值
-        # 需要在子类中配置 body_names 为末端执行器名称
-        ee_mass_disturbance = ObsTerm(
-            func=mdp.ee_mass_disturbance,
-            params={"asset_cfg": SceneEntityCfg("robot", body_names=["link6"])},
-            clip=(-10.0, 10.0),
-            scale=1.0,
-        )
+        # # Privileged info term: Feet contact state, 4 Dim
+        # # Feet contact state: 足端接触状态（二值），4 Dim（四足机器人）
+        # # 需要在子类中配置 body_names，如 ".*_foot"
+        # feet_contact_state = ObsTerm(
+        #     func=mdp.feet_contact_state,
+        #     params={
+        #         "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
+        #         "threshold": 1.0,
+        #     },
+        #     clip=(0.0, 1.0),
+        #     scale=1.0,
+        # )
+        # # Privileged info term: Static friction, 4 Dim ————————————————————————————————————————————————————————————————保持质疑
+        # # Static friction: 静摩擦系数（域随机化量），4 Dim（四足机器人）
+        # # 读取 randomize_rigid_body_material 随机化后的摩擦系数
+        # # 需要在子类中配置 body_names，如 ".*_foot"
+        # static_friction = ObsTerm(
+        #     func=mdp.static_friction,
+        #     params={"asset_cfg": SceneEntityCfg("robot", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])},
+        #     clip=(0.0, 2.0),
+        #     scale=1.0,
+        # )
+        # # Privileged info term: Feet air time, 4 Dim
+        # # Feet air time: 足端滞空时间，4 Dim（四足机器人）
+        # # 需要在子类中配置 body_names，如 ".*_foot"
+        # # 注意：需要 ContactSensorCfg.track_air_time=True
+        # feet_air_time = ObsTerm(
+        #     func=mdp_obs.feet_air_time,
+        #     params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])},
+        #     clip=(0.0, 1.0),
+        #     scale=1.0,
+        # )
+        # # Privileged info term: Base external wrench, 6 Dim
+        # # 基座外部力/力矩（域随机化量），由 randomize_apply_external_force_torque 设置
+        # # 需要在子类中配置 body_names 为基座名称
+        # base_external_wrench = ObsTerm(
+        #     func=mdp.base_external_wrench,
+        #     params={"asset_cfg": SceneEntityCfg("robot", body_names=["base"])},
+        #     clip=(-100.0, 100.0),
+        #     scale=1.0,
+        # )
+        # # Privileged info term: Base external push velocity, 6 Dim
+        # # 基座外部推动速度（域随机化量），由 push_by_setting_velocity 设置
+        # # 返回当前根速度（包含推动扰动）
+        # # 需要在子类中配置 body_names 为基座名称（虽然函数内部读取的是 root_vel_w）
+        # base_external_push_velocity = ObsTerm(
+        #     func=mdp.base_external_push_velocity,
+        #     params={"asset_cfg": SceneEntityCfg("robot", body_names=["base"])},
+        #     clip=(-10.0, 10.0),
+        #     scale=1.0,
+        # )
+        # # Privileged info term: Base mass disturbance, 1 Dim
+        # # 基座质量扰动（域随机化量），由 randomize_rigid_body_mass 设置
+        # # 返回当前质量与默认质量的差值
+        # # 需要在子类中配置 body_names 为基座名称
+        # base_mass_disturbance = ObsTerm(
+        #     func=mdp.base_mass_disturbance,
+        #     params={"asset_cfg": SceneEntityCfg("robot", body_names=["base"])},
+        #     clip=(-10.0, 10.0),
+        #     scale=1.0,
+        # )
+        # # Privileged info term: End-effector external wrench, 6 Dim
+        # # 末端执行器外部力/力矩（域随机化量），由 randomize_apply_external_force_torque 设置
+        # # 需要在子类中配置 body_names 为末端执行器名称
+        # ee_external_wrench = ObsTerm(
+        #     func=mdp.ee_external_wrench,
+        #     params={"asset_cfg": SceneEntityCfg("robot", body_names=["link6"])},
+        #     clip=(-100.0, 100.0),
+        #     scale=1.0,
+        # )
+        # # Privileged info term: End-effector mass disturbance, 1 Dim
+        # # 末端执行器质量扰动（域随机化量），由 randomize_rigid_body_mass 设置
+        # # 返回当前质量与默认质量的差值
+        # # 需要在子类中配置 body_names 为末端执行器名称
+        # ee_mass_disturbance = ObsTerm(
+        #     func=mdp.ee_mass_disturbance,
+        #     params={"asset_cfg": SceneEntityCfg("robot", body_names=["link6"])},
+        #     clip=(-10.0, 10.0),
+        #     scale=1.0,
+        # )
         # Previous_action_term: 上一步动作, 18 Dim
         actions = ObsTerm(
             func=mdp.last_action,
@@ -507,7 +534,7 @@ class ObservationsCfg:
         )
 
         def __post_init__(self):
-            self.enable_corruption = False   # policy 加噪声，有一些观测项不加噪声如 velocity_commands、gait_commands等
+            self.enable_corruption = True   # policy 加噪声，有一些观测项不加噪声如 velocity_commands、gait_commands等
             self.concatenate_terms = True
 
     @configclass
