@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 
 from isaaclab.assets import Articulation
 from isaaclab.managers import CommandTerm, CommandTermCfg
+from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
+from isaaclab.markers.config import FRAME_MARKER_CFG
 from isaaclab.utils import configclass
 from isaaclab.utils.math import (
     quat_apply,
@@ -375,6 +377,50 @@ class EndEffectorTwistTrajectoryCommand(CommandTerm):
         # Output command: [v(3), w(3), goal_pos(3), goal_quat(4)]
         self._command = torch.zeros(self.num_envs, 13, device=self.device)
 
+        # Cached values for logging (task frame).
+        self._log_ee_pos_t = torch.zeros(self.num_envs, 3, device=self.device)
+        self._log_ee_quat_t = torch.zeros(self.num_envs, 4, device=self.device)
+        self._log_ee_quat_t[:, 0] = 1.0
+        self._log_goal_pos_t = torch.zeros(self.num_envs, 3, device=self.device)
+        self._log_goal_quat_t = torch.zeros(self.num_envs, 4, device=self.device)
+        self._log_goal_quat_t[:, 0] = 1.0
+        self._log_use_local = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self._log_global_done = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+
+    def _set_debug_vis_impl(self, debug_vis: bool):
+        """Set debug visualization for goal/current end-effector poses."""
+        if debug_vis:
+            if not hasattr(self, "_goal_visualizer"):
+                self._goal_visualizer = VisualizationMarkers(
+                    self.cfg.goal_visualizer_cfg.replace(prim_path="/Visuals/Command/ee_twist/goal")
+                )
+                self._ee_visualizer = VisualizationMarkers(
+                    self.cfg.ee_visualizer_cfg.replace(prim_path="/Visuals/Command/ee_twist/ee")
+                )
+            self._goal_visualizer.set_visibility(True)
+            self._ee_visualizer.set_visibility(True)
+        else:
+            if hasattr(self, "_goal_visualizer"):
+                self._goal_visualizer.set_visibility(False)
+                self._ee_visualizer.set_visibility(False)
+
+    def _debug_vis_callback(self, event):
+        """Visualize sampled goal pose and current end-effector pose in world frame."""
+        if not self.robot.is_initialized:
+            return
+
+        # Task frame (world) and cached task-frame poses
+        task_pos_w, task_quat_w = self._get_task_frame_w()
+
+        ee_pos_w = task_pos_w + quat_apply(task_quat_w, self._log_ee_pos_t)
+        ee_quat_w = quat_mul(task_quat_w, self._log_ee_quat_t)
+
+        goal_pos_w = task_pos_w + quat_apply(task_quat_w, self._log_goal_pos_t)
+        goal_quat_w = quat_mul(task_quat_w, self._log_goal_quat_t)
+
+        self._ee_visualizer.visualize(ee_pos_w, ee_quat_w)
+        self._goal_visualizer.visualize(goal_pos_w, goal_quat_w)
+
     @property
     def command(self) -> torch.Tensor:
         return self._command
@@ -511,6 +557,42 @@ class EndEffectorTwistTrajectoryCommand(CommandTerm):
             (self.num_envs,), float(self.command_frame == "control"), device=self.device
         )
 
+        # Goal reachability metrics (task frame): position / orientation error to sampled goal.
+        pos_err = torch.norm(self._log_goal_pos_t - self._log_ee_pos_t, dim=-1)
+        q_goal_err = quat_mul(self._log_goal_quat_t, quat_inv(self._log_ee_quat_t))
+        q_goal_err = torch.where(q_goal_err[:, 0:1] < 0.0, -q_goal_err, q_goal_err)
+        rot_err = torch.norm(_quat_to_rotvec(q_goal_err), dim=-1)
+
+        self.metrics["ee_goal_pos_err"] = pos_err
+        self.metrics["ee_goal_rot_err"] = rot_err
+
+        # Global-only endpoint stats (global trajectories "done" when alpha_global clamped to 1).
+        done = self._log_global_done.float()
+        global_env = (~self._log_use_local).float()
+
+        pos_tol = float(getattr(self.cfg, "ee_goal_pos_tol", 0.03))
+        rot_tol = float(getattr(self.cfg, "ee_goal_rot_tol", 0.2))
+        reached = ((pos_err < pos_tol) & (rot_err < rot_tol) & self._log_global_done).float()
+        self.metrics["ee_goal_reached"] = reached
+
+        eps = 1.0e-6
+        global_count = torch.sum((~self._log_use_local).float())
+        done_count = torch.sum(done)
+        done_count_safe = torch.clamp(done_count, min=eps)
+        global_count_safe = torch.clamp(global_count, min=eps)
+
+        done_frac_global = done_count / global_count_safe
+        reach_rate_done = torch.sum(reached) / done_count_safe
+        pos_err_done_mean = torch.sum(pos_err * done) / done_count_safe
+        rot_err_done_mean = torch.sum(rot_err * done) / done_count_safe
+        global_frac = torch.mean(global_env)
+
+        self.metrics["ee_goal_global_env_frac"] = torch.ones(self.num_envs, device=self.device) * global_frac
+        self.metrics["ee_goal_done_frac_global"] = torch.ones(self.num_envs, device=self.device) * done_frac_global
+        self.metrics["ee_goal_reach_rate_done"] = torch.ones(self.num_envs, device=self.device) * reach_rate_done
+        self.metrics["ee_goal_pos_err_done_mean"] = torch.ones(self.num_envs, device=self.device) * pos_err_done_mean
+        self.metrics["ee_goal_rot_err_done_mean"] = torch.ones(self.num_envs, device=self.device) * rot_err_done_mean
+
     # step函数被调用时会调用这个函数
     # 13 维 command 在 cfg.command_frame 指定的 frame 下定义
     def _update_command(self):
@@ -529,25 +611,74 @@ class EndEffectorTwistTrajectoryCommand(CommandTerm):
         # global 轨迹在整个持续时间内保持固定起点。
         # For local trajectory: fixed small step (dt/duration), always from current pose
         # For global trajectory: accumulated time ratio from fixed start pose
-        alpha_local = torch.clamp(self._dt / torch.clamp(self._traj_duration, min=1.0e-6), 0.0, 1.0)
-        alpha_global = torch.clamp(self._traj_time / torch.clamp(self._traj_duration, min=1.0e-6), 0.0, 1.0)
-        
+        duration = torch.clamp(self._traj_duration, min=1.0e-6)
+        alpha_local = torch.clamp(self._dt / duration, 0.0, 1.0)
+        alpha_global = torch.clamp(self._traj_time / duration, 0.0, 1.0)
+
         # Local always resets start to current pose; Global uses fixed sampled start
         pos_start = torch.where(use_local.unsqueeze(-1), ee_pos_t, self._start_pos_t)
         quat_start = torch.where(use_local.unsqueeze(-1), ee_quat_t, self._start_quat_t)
+
         alpha = torch.where(use_local, alpha_local, alpha_global)
 
-        pos_i = pos_start + alpha.unsqueeze(-1) * (self._goal_pos_t - pos_start)
-        quat_i = _quat_slerp(quat_start, self._goal_quat_t, alpha)
+        # Enforce hemisphere consistency for shortest-arc SLERP (scalar-first quaternions).
+        # - Canonicalize goal quaternion to q.w >= 0 for stable command representation.
+        goal_pos_t = self._goal_pos_t
+        goal_quat_t = self._goal_quat_t
+        goal_quat_out = torch.where(goal_quat_t[:, 0:1] < 0.0, -goal_quat_t, goal_quat_t)
+        dot = torch.sum(quat_start * goal_quat_out, dim=-1, keepdim=True)
+        goal_quat_hemi = torch.where(dot < 0.0, -goal_quat_out, goal_quat_out)
 
-        # Twist command (Eq. (4))
-        v_ee = (pos_i - ee_pos_t) / self._dt
-        q_err = quat_mul(quat_i, quat_inv(ee_quat_t))
-        rotvec = _quat_to_rotvec(q_err)
-        w_ee = rotvec / self._dt
+        pos_ref = pos_start + alpha.unsqueeze(-1) * (goal_pos_t - pos_start)
+        quat_ref = _quat_slerp(quat_start, goal_quat_hemi, alpha)
 
-        goal_pos = self._goal_pos_t
-        goal_quat = self._goal_quat_t
+        # Twist command: analytic feed-forward + error feedback.
+        # Linear
+        v_ff = (goal_pos_t - pos_start) / duration.unsqueeze(-1)
+        v_fb = float(getattr(self.cfg, "ee_pos_kp", 1.0)) * (pos_ref - ee_pos_t)
+
+        # Angular
+        dq_total = quat_mul(goal_quat_hemi, quat_inv(quat_start))
+        dq_total = torch.where(dq_total[:, 0:1] < 0.0, -dq_total, dq_total)
+        w_ff = _quat_to_rotvec(dq_total) / duration.unsqueeze(-1)
+
+        # If the global trajectory has finished (alpha_global clamped to 1), stop feed-forward motion.
+        global_done = (~use_local) & (alpha_global >= 1.0)
+        if global_done.any():
+            v_ff = v_ff.clone()
+            w_ff = w_ff.clone()
+            v_ff[global_done] = 0.0
+            w_ff[global_done] = 0.0
+
+        q_err = quat_mul(quat_ref, quat_inv(ee_quat_t))
+        q_err = torch.where(q_err[:, 0:1] < 0.0, -q_err, q_err)
+        w_fb = float(getattr(self.cfg, "ee_rot_kp", 1.0)) * _quat_to_rotvec(q_err)
+        w_ee = w_ff + w_fb
+        v_ee = v_ff + v_fb
+
+        # Physical saturation (preserve direction)
+        ee_ang_vel_max = float(getattr(self.cfg, "ee_ang_vel_max", 0.0))
+        if ee_ang_vel_max > 0.0:
+            n = torch.norm(w_ee, dim=-1, keepdim=True)
+            scale = torch.clamp(ee_ang_vel_max / torch.clamp(n, min=1.0e-6), max=1.0)
+            w_ee = w_ee * scale
+
+        ee_lin_vel_max = float(getattr(self.cfg, "ee_lin_vel_max", 0.0))
+        if ee_lin_vel_max > 0.0:
+            n = torch.norm(v_ee, dim=-1, keepdim=True)
+            scale = torch.clamp(ee_lin_vel_max / torch.clamp(n, min=1.0e-6), max=1.0)
+            v_ee = v_ee * scale
+
+        goal_pos = goal_pos_t
+        goal_quat = goal_quat_out
+
+        # Cache for logging (task frame, before any command_frame conversion).
+        self._log_ee_pos_t = ee_pos_t
+        self._log_ee_quat_t = ee_quat_t
+        self._log_goal_pos_t = goal_pos_t
+        self._log_goal_quat_t = goal_quat_out
+        self._log_use_local = use_local
+        self._log_global_done = global_done
 
         if self.command_frame == "base":
             torso_quat_w = self.robot.data.body_quat_w[:, self._torso_body_index]
@@ -589,7 +720,7 @@ class EndEffectorTwistTrajectoryCommandCfg(CommandTermCfg):
     # 目标位置采样的最大尝试次数
     max_sampling_tries: int = 64
     # 目标朝向扰动范围（每轴 ±bound）
-    orientation_perturb_bound: float = math.pi / 4.0
+    orientation_perturb_bound: float = math.pi / 6.0
 
     # Trajectory duration (seconds)
     # 轨迹时间范围（秒）
@@ -598,6 +729,25 @@ class EndEffectorTwistTrajectoryCommandCfg(CommandTermCfg):
     # Local trajectory subset probability
     # 选择 local 轨迹的概率（其余为 global）
     local_trajectory_probability: float = 0.5
+
+    # Twist command shaping / safety
+    # - Feedback gains for reference tracking (units: 1/s).
+    ee_pos_kp: float = 1.0
+    ee_rot_kp: float = 1.0
+    # - Saturation limits (<= 0 disables).
+    ee_ang_vel_max: float = 8.0  # rad/s
+    ee_lin_vel_max: float = 0.0  # m/s
+
+    # Goal "reached" thresholds for logging (global trajectories only).
+    ee_goal_pos_tol: float = 0.03  # meters
+    ee_goal_rot_tol: float = 0.2  # radians (angle error)
+
+    # Debug visualization (goal + current EE pose)
+    goal_visualizer_cfg: VisualizationMarkersCfg = FRAME_MARKER_CFG.replace(prim_path="/Visuals/Command/ee_twist/goal")
+    goal_visualizer_cfg.markers["frame"].scale = (0.08, 0.08, 0.08)
+
+    ee_visualizer_cfg: VisualizationMarkersCfg = FRAME_MARKER_CFG.replace(prim_path="/Visuals/Command/ee_twist/ee")
+    ee_visualizer_cfg.markers["frame"].scale = (0.06, 0.06, 0.06)
 
 
 class DesiredFeetSwingHeightCommand(CommandTerm):

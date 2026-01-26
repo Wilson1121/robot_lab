@@ -56,6 +56,12 @@ parser.add_argument(
     default=False,
     help="Drive joints toward default pose to test standing stability.",
 )
+parser.add_argument(
+    "--goal-vis",
+    action=argparse.BooleanOptionalAction,
+    default=True,
+    help="Visualize end-effector sampled goal pose (and current EE) in the viewport.",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -234,6 +240,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         env_cfg.observations.policy.velocity_commands = ObsTerm(
             func=lambda env: torch.tensor(controller.advance(), dtype=torch.float32).unsqueeze(0).to(env.device),
         )
+
+    # Enable goal visualization for EE twist command (implemented in the command term).
+    if hasattr(env_cfg, "commands") and hasattr(env_cfg.commands, "ee_twist"):
+        try:
+            env_cfg.commands.ee_twist.debug_vis = bool(args_cli.goal_vis)
+        except Exception:
+            pass
 
     # specify directory for logging experiments
     log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
