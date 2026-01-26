@@ -108,6 +108,65 @@ def track_ang_vel_z_world_exp(
     return reward
 
 
+def joint_pos_limit_margin_penalty(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    margin_ratio: float = 0.10,
+    min_margin: float = 0.05,
+    max_penalty_per_joint: float = 1.0,
+    oob_scale: float = 1.0,
+    max_oob_penalty_per_joint: float = 10.0,
+    use_soft_limits: bool = False,
+) -> torch.Tensor:
+    """Continuous penalty when joints approach position limits.
+
+    This is a "soft-constraint" barrier: penalty is zero when a joint is comfortably within limits,
+    and increases smoothly to :attr:`max_penalty_per_joint` as the joint approaches the limit.
+
+    Unlike :func:`isaaclab.envs.mdp.joint_pos_limits`, which only penalizes when crossing soft limits,
+    this term penalizes *proximity* to the limits, which helps prevent policies from constantly pushing
+    joints into hard stops when using relative (delta) joint position actions.
+
+    Args:
+        margin_ratio: Fraction of the joint range considered as the "near-limit" zone.
+        min_margin: Minimum near-limit zone size [rad] (avoid tiny ranges causing numerical issues).
+        max_penalty_per_joint: Upper bound per joint (keeps penalty scale well-behaved).
+        use_soft_limits: If True, compute proximity w.r.t. soft limits; else w.r.t. hard limits.
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    q = asset.data.joint_pos[:, asset_cfg.joint_ids]
+    if use_soft_limits:
+        limits = asset.data.soft_joint_pos_limits[:, asset_cfg.joint_ids]
+    else:
+        limits = asset.data.joint_pos_limits[:, asset_cfg.joint_ids]
+
+    lo = limits[..., 0]
+    hi = limits[..., 1]
+    rng = (hi - lo).clamp(min=1.0e-6)
+
+    # Distance to nearest limit (>= 0 inside limits).
+    dist = torch.minimum(q - lo, hi - q)
+
+    # Near-limit zone size (per joint).
+    margin = torch.clamp(float(margin_ratio) * rng, min=float(min_margin))
+
+    # Near-limit barrier: 0 when dist >= margin, smoothly increases to 1 as dist -> 0.
+    s = ((margin - dist) / margin).clamp(min=0.0, max=1.0)
+    per_joint = (s * s) * float(max_penalty_per_joint)
+
+    # Out-of-bounds (OOB) penalty: increases with the magnitude of the violation (no early saturation).
+    # If dist < 0, the joint is outside limits by (-dist) radians.
+    if float(oob_scale) > 0.0:
+        oob = (-dist).clamp(min=0.0)
+        oob_norm = oob / margin
+        oob_pen = (oob_norm * oob_norm) * float(oob_scale)
+        if float(max_oob_penalty_per_joint) > 0.0:
+            oob_pen = oob_pen.clamp(max=float(max_oob_penalty_per_joint))
+        per_joint = per_joint + oob_pen
+    return torch.sum(per_joint, dim=1)
+
+
 class EndEffectorPositionReward(ManagerTermBase):
     """End-effector position tracking reward using desired twist (paper Eq. for r_EE^t).
 

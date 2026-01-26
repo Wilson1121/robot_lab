@@ -11,9 +11,12 @@ from typing import TYPE_CHECKING
 
 from isaaclab.assets import Articulation
 from isaaclab.managers import CommandTerm, CommandTermCfg
+from isaaclab.markers import VisualizationMarkers
+from isaaclab.markers.config import SPHERE_MARKER_CFG
 from isaaclab.utils import configclass
 from isaaclab.utils.math import (
     quat_apply,
+    quat_box_minus,
     quat_from_euler_xyz,
     quat_inv,
     quat_mul,
@@ -342,6 +345,8 @@ class EndEffectorTwistTrajectoryCommand(CommandTerm):
     cfg: EndEffectorTwistTrajectoryCommandCfg
 
     def __init__(self, cfg: EndEffectorTwistTrajectoryCommandCfg, env: ManagerBasedRLEnv):
+        self._goal_visualizer = None
+        self._goal_marker_cfg = SPHERE_MARKER_CFG.replace(prim_path="/Visuals/Command/ee_goal")
         super().__init__(cfg, env)
         if not cfg.ee_body_name or not cfg.torso_body_name or not cfg.shoulder_body_name:
             raise ValueError(
@@ -374,6 +379,11 @@ class EndEffectorTwistTrajectoryCommand(CommandTerm):
 
         # Output command: [v(3), w(3), goal_pos(3), goal_quat(4)]
         self._command = torch.zeros(self.num_envs, 13, device=self.device)
+
+        # Metrics buffers for per-trajectory goal error in world frame
+        self._metric_goal_pos_err_sum = torch.zeros(self.num_envs, device=self.device)
+        self._metric_goal_rot_err_sum = torch.zeros(self.num_envs, device=self.device)
+        self._metric_goal_err_count = torch.zeros(self.num_envs, device=self.device)
 
     @property
     def command(self) -> torch.Tensor:
@@ -408,6 +418,8 @@ class EndEffectorTwistTrajectoryCommand(CommandTerm):
 
         # Rejection sampling in a unit sphere, scaled by radius
         radius = float(self.cfg.position_sphere_radius)
+        front_hemisphere = bool(getattr(self.cfg, "front_hemisphere", False))
+        front_min_x = float(getattr(self.cfg, "front_min_x", 0.0))
         max_tries = int(self.cfg.max_sampling_tries)
         n = env_ids.numel()
 
@@ -426,13 +438,15 @@ class EndEffectorTwistTrajectoryCommand(CommandTerm):
 
             # Uniform in [-1,1]^3 then reject outside unit ball
             samp = sample_uniform(-1.0, 1.0, (remaining.numel(), 3), device=self.device)
-            inside = torch.norm(samp, dim=-1) <= 1.0
-            if not inside.any():
+            accept_mask = torch.norm(samp, dim=-1) <= 1.0
+            if front_hemisphere:
+                accept_mask &= samp[:, 0] >= front_min_x
+            if not accept_mask.any():
                 continue
-            samp = samp[inside]
+            samp = samp[accept_mask]
 
             # Map to remaining slots
-            rem_idx = remaining[inside]
+            rem_idx = remaining[accept_mask]
             pos = shoulder_pos_t[rem_idx] + radius * samp
 
             in_cuboid = torch.all((pos >= cub_min) & (pos <= cub_max), dim=-1)
@@ -503,6 +517,22 @@ class EndEffectorTwistTrajectoryCommand(CommandTerm):
         p_local = float(self.cfg.local_trajectory_probability)
         self._use_local[env_ids] = (torch.rand(env_ids.numel(), device=self.device) < p_local)
 
+        # Reset per-trajectory metrics
+        self._metric_goal_pos_err_sum[env_ids] = 0.0
+        self._metric_goal_rot_err_sum[env_ids] = 0.0
+        self._metric_goal_err_count[env_ids] = 0.0
+
+    def reset(self, env_ids: Sequence[int] | None = None) -> dict[str, float]:
+        extras = super().reset(env_ids)
+        if env_ids is None:
+            env_ids = slice(None)
+        if isinstance(env_ids, torch.Tensor):
+            env_ids = env_ids.tolist()
+        self._metric_goal_pos_err_sum[env_ids] = 0.0
+        self._metric_goal_rot_err_sum[env_ids] = 0.0
+        self._metric_goal_err_count[env_ids] = 0.0
+        return extras
+
     def _update_metrics(self):
         # Optional: expose norms of commands for logging
         self.metrics["ee_cmd_lin_vel_norm"] = torch.norm(self._command[:, 0:3], dim=-1)
@@ -510,6 +540,41 @@ class EndEffectorTwistTrajectoryCommand(CommandTerm):
         self.metrics["ee_cmd_frame_is_control"] = torch.full(
             (self.num_envs,), float(self.command_frame == "control"), device=self.device
         )
+
+        ee_pos_w = self.robot.data.body_pos_w[:, self._ee_body_index]
+        ee_quat_w = self.robot.data.body_quat_w[:, self._ee_body_index]
+        task_pos_w, task_quat_w = self._get_task_frame_w()
+        goal_pos_w = task_pos_w + quat_apply(task_quat_w, self._goal_pos_t)
+        goal_quat_w = quat_mul(task_quat_w, self._goal_quat_t)
+
+        pos_err = torch.norm(ee_pos_w - goal_pos_w, dim=-1)
+        rotvec_err = quat_box_minus(goal_quat_w, ee_quat_w)
+        rot_err = torch.norm(rotvec_err, dim=-1)
+
+        self._metric_goal_pos_err_sum += pos_err
+        self._metric_goal_rot_err_sum += rot_err
+        self._metric_goal_err_count += 1.0
+
+        count = torch.clamp(self._metric_goal_err_count, min=1.0)
+        self.metrics["ee_goal_pos_error_w"] = self._metric_goal_pos_err_sum / count
+        self.metrics["ee_goal_rot_error_w"] = self._metric_goal_rot_err_sum / count
+
+    def _set_debug_vis_impl(self, debug_vis: bool):
+        if debug_vis:
+            if self._goal_visualizer is None:
+                self._goal_visualizer = VisualizationMarkers(self._goal_marker_cfg)
+            self._goal_visualizer.set_visibility(True)
+        else:
+            if self._goal_visualizer is not None:
+                self._goal_visualizer.set_visibility(False)
+
+    def _debug_vis_callback(self, event):
+        if not self.robot.is_initialized or self._goal_visualizer is None:
+            return
+        task_pos_w, task_quat_w = self._get_task_frame_w()
+        goal_pos_w = task_pos_w + quat_apply(task_quat_w, self._goal_pos_t)
+        goal_quat_w = quat_mul(task_quat_w, self._goal_quat_t)
+        self._goal_visualizer.visualize(goal_pos_w, goal_quat_w)
 
     # step函数被调用时会调用这个函数
     # 13 维 command 在 cfg.command_frame 指定的 frame 下定义
@@ -584,12 +649,18 @@ class EndEffectorTwistTrajectoryCommandCfg(CommandTermCfg):
     # Trajectory sampling
     # 目标位置采样球半径（球心在肩部）
     position_sphere_radius: float = 0.5
+    # Whether to restrict goal samples to the "front" hemisphere (task-frame +X).
+    # This helps avoid sampling unreachable goals behind the robot for arms with one-sided joint limits.
+    front_hemisphere: bool = False
+    # Minimum x component (in unit-ball sample space) when front_hemisphere=True.
+    # 0.0 => half-ball (hemisphere), >0.0 => narrower forward cone.
+    front_min_x: float = 0.0
     # Cuboid bounds in task frame to reject goals inside torso/hip region: (xmin, xmax, ymin, ymax, zmin, zmax)
     reject_cuboid: tuple[float, float, float, float, float, float] = (-0.25, 0.35, -0.25, 0.25, -0.25, 0.35)
     # 目标位置采样的最大尝试次数
     max_sampling_tries: int = 64
     # 目标朝向扰动范围（每轴 ±bound）
-    orientation_perturb_bound: float = math.pi / 4.0
+    orientation_perturb_bound: float = math.pi / 6.0
 
     # Trajectory duration (seconds)
     # 轨迹时间范围（秒）

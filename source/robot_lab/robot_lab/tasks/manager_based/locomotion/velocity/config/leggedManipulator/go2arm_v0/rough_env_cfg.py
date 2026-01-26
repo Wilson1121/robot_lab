@@ -60,20 +60,43 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         # self.observations.policy.joint_vel.scale = 1.0
         self.observations.policy.joint_vel.scale = 0.1
         self.observations.policy.joint_vel.clip = (-20.0, 20.0)
+
+        self.observations.policy.feet_contact_state.scale = 1.0
+        self.observations.policy.feet_contact_state.clip = (-1.0, 1.0)
+        self.observations.policy.static_friction.scale = 1.0
+        self.observations.policy.static_friction.clip = (0.0, 2.0)
+        self.observations.policy.feet_air_time.scale = 1.0
+        self.observations.policy.feet_air_time.clip = (0.0, 2.0)
+        # self.observations.policy.base_external_wrench.scale = 1.0
+        self.observations.policy.base_external_wrench.scale = 0.02
+        self.observations.policy.base_external_wrench.clip = (-100.0, 100.0)   
+        # self.observations.policy.base_external_push_velocity.scale = 1.0
+        self.observations.policy.base_external_push_velocity.scale = 2.0
+        self.observations.policy.base_external_push_velocity.clip = (-10.0, 10.0)
+        # self.observations.policy.base_mass_disturbance.scale = 1.0
+        self.observations.policy.base_mass_disturbance.scale = 0.5
+        self.observations.policy.base_mass_disturbance.clip = (-10.0, 10.0)
+        # self.observations.policy.ee_external_wrench.scale = 1.0
+        self.observations.policy.ee_external_wrench.scale = 0.3
+        self.observations.policy.ee_external_wrench.clip = (-20.0, 20.0)   # 改小点
+        # self.observations.critic.ee_mass_disturbance.scale = 1.0
+        self.observations.policy.ee_mass_disturbance.scale = 0.5
+        self.observations.policy.ee_mass_disturbance.clip = (-10.0, 10.0)
+
         self.observations.policy.actions.scale = 1.0
         self.observations.policy.actions.clip = (-1.0, 1.0)
         # self.observations.policy.base_velocity_command.scale = 1.0
         self.observations.policy.base_velocity_command.scale = 2.0
         self.observations.policy.base_velocity_command.clip = (-5.0, 5.0)
         # self.observations.policy.ee_twist_command.scale = 1.0
-        self.observations.policy.ee_twist_command.scale = 2.0
-        self.observations.policy.ee_twist_command.clip = (-5.0, 5.0)
+        self.observations.policy.ee_twist_command.scale = 1.0
+        self.observations.policy.ee_twist_command.clip = (-50.0, 50.0)
         # self.observations.policy.feet_swing_height_command.scale = 1.0
         # self.observations.policy.feet_swing_height_command.clip = (0.0, 0.2)
         self.observations.policy.feet_swing_height_command.scale = 10.0
         self.observations.policy.feet_swing_height_command.clip = (0.0, 5.0)
 
-
+        # ###################################################################################################
         # Critic observations scale and clip configuration
         self.observations.critic.joint_pos_history.scale = 1.0
         self.observations.critic.joint_pos_history.clip = (-3.14, 3.14)
@@ -118,8 +141,8 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.observations.critic.base_velocity_command.scale = 2.0
         self.observations.critic.base_velocity_command.clip = (-5.0, 5.0)
         # self.observations.critic.ee_twist_command.scale = 1.0
-        self.observations.critic.ee_twist_command.scale = 2.0
-        self.observations.critic.ee_twist_command.clip = (-5.0, 5.0)
+        self.observations.critic.ee_twist_command.scale = 1.0
+        self.observations.critic.ee_twist_command.clip = (-50.0, 50.0)
         # self.observations.critic.feet_swing_height_command.scale = 1.0
         # self.observations.critic.feet_swing_height_command.clip = (0.0, 0.2)
         self.observations.critic.feet_swing_height_command.scale = 10.0
@@ -130,18 +153,28 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         # Action scale: 论文中使用的标准尺度约为 0.25
         # 过小的 scale (如 0.05) 会导致机器人无法有效控制关节，可能趴地
         # self.actions.joint_pos.scale = {".*_hip_joint": 0.125, "^(?!.*_hip_joint).*": 0.25}
-        # self.actions.legs.scale = 0.25  # 修改：从 0.05 增加到 0.25
-        # self.actions.arm.scale = 0.25   # 修改：从 0.05 增加到 0.25
         # 具体参数写在 cus_velocity_env_cfg.py 里
-        
 
+        # ------------------------------Commands (paper-aligned defaults)------------------------------
+        # Paper Sec. 3.2: base velocity command sampled in [-0.25, 0.25].
+        # Your parent config uses a much larger range ([-1.5, 1.5]), which makes early training
+        # substantially harder and can degrade EE tracking.
+        self.commands.base_velocity.ranges.lin_vel_x = (-0.25, 0.25)
+        self.commands.base_velocity.ranges.lin_vel_y = (-0.25, 0.25)
+        self.commands.base_velocity.ranges.ang_vel_z = (-0.25, 0.25)
+
+        # Paper Sec. 3.2: train with a subset of "local" trajectories to densify positive examples.
+        # Setting this to 0.0 (global-only) often slows learning and hurts EE tracking quality.
+        self.commands.ee_twist.local_trajectory_probability = 0.0
+
+        
         # ------------------------------Events------------------------------
         # 具体参数写在 cus_velocity_env_cfg.py 里
 
         # ------------------------------Rewards------------------------------
         # 父类LocomotionVelocityRoughEnvCfg里已经定义了一些reward term，默认权重为0，这里修改其权重和参数
         # loco
-        self.rewards.base_linear_velocity.weight = 10.0  # 2.0->10.0
+        self.rewards.base_linear_velocity.weight = 2.0  # 2.0->10.0
         # self.rewards.base_linear_velocity.weight = 5.0
         self.rewards.base_angular_velocity.weight = 2.0
         self.rewards.torso_height.weight = 0.5  
@@ -156,14 +189,16 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.rewards.robot_action_rate.weight = 0.001 
         self.rewards.robot_joint_torque.weight = 1e-5
         self.rewards.robot_joint_velocity.weight = 1e-4  
+        self.rewards.robot_joint_pos_limits.weight = -5.0   # 新增限位惩罚
         # self.rewards.velocity_mismatch_penalty.weight = -2.0  # 不动惩罚：有速度命令但不动时惩罚
         # mani
-        # self.rewards.ee_position.weight = 5.0
-        # self.rewards.ee_orientation.weight = 4.0
-        # self.rewards.undesired_arm_contacts.weight = -1.0
-        # self.rewards.arm_action_rate.weight = 0.1
-        # self.rewards.arm_joint_torques.weight = 1e-5
-        # self.rewards.arm_joint_velocities.weight = 1e-4
+        self.rewards.ee_position.weight = 5.0   
+        self.rewards.ee_orientation.weight = 4.0    
+        self.rewards.undesired_arm_contacts.weight = -1.0
+        self.rewards.arm_joint_pos_limits.weight = -5.0     # 新增限位惩罚
+        self.rewards.arm_action_rate.weight = 0.1
+        self.rewards.arm_joint_torques.weight = 1e-5
+        self.rewards.arm_joint_velocities.weight = 1e-4
         # contact
         self.rewards.feet_contact_rough.weight = 1.0
         self.rewards.feet_air_time_variance.weight = -1.0
@@ -187,16 +222,18 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
                 "undesired_robot_contacts",
                 "robot_action_rate",
                 "robot_joint_torque",
-                "robot_joint_velocity"
+                "robot_joint_velocity",
+                "robot_joint_pos_limits",
                 # "velocity_mismatch_penalty"     # 新增不动惩罚
             ],
             "mani": [
-                # "ee_position",
-                # "ee_orientation",
-                # "undesired_arm_contacts",
-                # "arm_action_rate",
-                # "arm_joint_torques",
-                # "arm_joint_velocities"
+                "ee_position",
+                "ee_orientation",
+                "undesired_arm_contacts",
+                "arm_joint_pos_limits",
+                "arm_action_rate",
+                "arm_joint_torques",
+                "arm_joint_velocities"
             ],
             "contact": [
                 "feet_contact_rough",
@@ -225,8 +262,8 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         # ------------------------------Commands------------------------------
         # 论文 Table 7: 速度命令范围 (单位: m/s, rad/s)
         # lin_vel_x: [-0.25, 0.25], lin_vel_y: [-0.25, 0.25], ang_vel_z: [-0.25, 0.25]
-        self.commands.base_velocity.ranges.lin_vel_x = (-0.3, 0.3)
-        self.commands.base_velocity.ranges.lin_vel_y = (-0.2, 0.2)
-        self.commands.base_velocity.ranges.ang_vel_z = (-0.3, 0.3)
+        # self.commands.base_velocity.ranges.lin_vel_x = (-0.3, 0.3)
+        # self.commands.base_velocity.ranges.lin_vel_y = (-0.2, 0.2)
+        # self.commands.base_velocity.ranges.ang_vel_z = (-0.2, 0.2)
 
-        self.commands.ee_twist.local_trajectory_probability = 0.8
+        # self.commands.ee_twist.local_trajectory_probability = 0.0  # 仅使用全局目标位置

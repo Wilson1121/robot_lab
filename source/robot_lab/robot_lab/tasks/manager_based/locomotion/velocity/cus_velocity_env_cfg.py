@@ -146,7 +146,7 @@ class CommandsCfg:
     base_velocity = mdp.UniformThresholdVelocityCommandCfg(
         asset_name="robot",
         # resampling_time_range=(10.0, 10.0),
-        resampling_time_range=(6.0, 8.0),
+        resampling_time_range=(10.0, 15.0),
         rel_standing_envs=0.02,
         rel_heading_envs=1.0,
         heading_command=False,
@@ -162,20 +162,23 @@ class CommandsCfg:
     ee_twist = mdp.EndEffectorTwistTrajectoryCommandCfg(
         asset_name="robot",
         # resampling_time_range=(10.0, 10.0),   # 轨迹采用持续时间范围
-        resampling_time_range=(4.0, 6.0),   # 轨迹采用持续时间范围
+        resampling_time_range=(6.0, 8.0),   # 轨迹采用持续时间范围
         ee_body_name="link6",
         torso_body_name="base",
         shoulder_body_name="link2",
+        position_sphere_radius = 0.3,
+        front_hemisphere = True,  # 仅在肩部前方半球采样目标位置
+        front_min_x = 0.0,        # 前方最小x距离
         reject_cuboid=(-0.25, 0.25, -0.16, 0.16, -0.08, 0.20),  # torso和hip的最大外包络长方体（估计值）
-        trajectory_duration_range=(3.0, 5.0),   # 轨迹时间范围
-        local_trajectory_probability=0.5,
+        trajectory_duration_range=(6.0, 8.0),   # 轨迹时间范围
+        local_trajectory_probability=0.0,
         # Paper curriculum (Sec. 7.2.1): start with base-frame commands, then switch to control-frame.
         command_frame="base",
     )
     # 足端摆动高度命令（论文 Eq. (5)）
     feet_swing_height = mdp.DesiredFeetSwingHeightCommandCfg(
         # resampling_time_range=(6.0, 6.0),
-        resampling_time_range=(6.0, 8.0),   # 与base velocity对应
+        resampling_time_range=(10.0, 15.0),   # 与base velocity对应
         # max_height=0.12,
         max_height=0.08,
         gait_frequency=2.0,
@@ -237,10 +240,51 @@ class ActionsCfg:
             "joint5",
             "joint6"
         ],
-        scale=0.10,
+        # Arm joints include one-sided limits (e.g., joint2: [0, pi], joint3: [-pi, 0]).
+        # Keep per-step deltas small to avoid repeatedly pushing into hard limits.
+        scale=0.08,
+        clip={r"joint[1-6]": (-0.1, 0.1)},
         use_zero_offset=True,
         preserve_order=True,
     )
+
+
+
+    # legs = mdp.JointPositionActionCfg(
+    #     asset_name="robot",
+    #     joint_names=[
+    #         "FL_hip_joint",
+    #         "FL_thigh_joint",
+    #         "FL_calf_joint",
+    #         "FR_hip_joint",
+    #         "FR_thigh_joint",
+    #         "FR_calf_joint",
+    #         "RL_hip_joint",
+    #         "RL_thigh_joint",
+    #         "RL_calf_joint",
+    #         "RR_hip_joint",
+    #         "RR_thigh_joint",
+    #         "RR_calf_joint"
+    #     ],
+    #     scale=0.25,
+    #     use_default_offset=True,
+    #     preserve_order=True,
+    # )   
+
+    # arm = mdp.JointPositionActionCfg(
+    #     asset_name="robot",
+    #     joint_names=[
+    #         "joint1",
+    #         "joint2",
+    #         "joint3",
+    #         "joint4",
+    #         "joint5",
+    #         "joint6"
+    #     ],
+    #     scale=0.5,
+    #     use_default_offset=True,
+    #     preserve_order=True,
+    # )
 
 
 
@@ -285,7 +329,7 @@ class ObservationsCfg:
             },
             # noise=Unoise(n_min=-0.01, n_max=0.01),
             clip=(-100.0, 100.0),
-            noise=Unoise(n_min=-0.01, n_max=0.01),
+            # noise=Unoise(n_min=-0.01, n_max=0.01),
             scale=1.0,
             history_length=4,          # 存储过去4帧
             flatten_history_dim=True,  # 将历史维度展平为2D (num_envs, joint_num * 4)
@@ -293,21 +337,21 @@ class ObservationsCfg:
         # Proprioception_term: 重力投影, 3 Dim
         projected_gravity = ObsTerm(
             func=mdp.projected_gravity,
-            noise=Unoise(n_min=-0.01, n_max=0.01),
+            # noise=Unoise(n_min=-0.01, n_max=0.01),
             clip=(-100.0, 100.0),
             scale=1.0,
         )        
         # Proprioception_term: 基座线速度, 3 Dim
         base_lin_vel = ObsTerm(
             func=mdp.base_lin_vel,
-            noise=Unoise(n_min=-0.01, n_max=0.01),
+            # noise=Unoise(n_min=-0.01, n_max=0.01),
             clip=(-100.0, 100.0),
             scale=1.0,
         )
         # Proprioception_term: 基座角速度, 3 Dim
         base_ang_vel = ObsTerm(
             func=mdp.base_ang_vel,
-            noise=Unoise(n_min=-0.1, n_max=0.1),
+            # noise=Unoise(n_min=-0.1, n_max=0.1),
             clip=(-100.0, 100.0),
             scale=1.0,
         )
@@ -340,7 +384,7 @@ class ObservationsCfg:
                     preserve_order=True,
                 )
             },
-            noise=Unoise(n_min=-0.01, n_max=0.01),
+            # noise=Unoise(n_min=-0.01, n_max=0.01),
             clip=(-100.0, 100.0),
             scale=1.0,
         )
@@ -373,10 +417,97 @@ class ObservationsCfg:
                     preserve_order=True,
                 )
             },
-            noise=Unoise(n_min=-0.2, n_max=0.2),
+            # noise=Unoise(n_min=-0.2, n_max=0.2),
             clip=(-100.0, 100.0),
             scale=1.0,
         )
+
+        # Privileged info term: Feet contact state, 4 Dim
+        # Feet contact state: 足端接触状态（二值），4 Dim（四足机器人）
+        # 需要在子类中配置 body_names，如 ".*_foot"
+        feet_contact_state = ObsTerm(
+            func=mdp.feet_contact_state,
+            params={
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
+                "threshold": 1.0,
+            },
+            clip=(0.0, 1.0),
+            scale=1.0,
+        )
+        # Privileged info term: Static friction, 4 Dim ————————————————————————————————————————————————————————————————保持质疑
+        # Static friction: 静摩擦系数（域随机化量），4 Dim（四足机器人）
+        # 读取 randomize_rigid_body_material 随机化后的摩擦系数
+        # 需要在子类中配置 body_names，如 ".*_foot"
+        static_friction = ObsTerm(
+            func=mdp.static_friction,
+            params={"asset_cfg": SceneEntityCfg("robot", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])},
+            clip=(0.0, 2.0),
+            scale=1.0,
+        )
+        # Privileged info term: Feet air time, 4 Dim
+        # Feet air time: 足端滞空时间，4 Dim（四足机器人）
+        # 需要在子类中配置 body_names，如 ".*_foot"
+        # 注意：需要 ContactSensorCfg.track_air_time=True
+        feet_air_time = ObsTerm(
+            func=mdp_obs.feet_air_time,
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])},
+            clip=(0.0, 1.0),
+            scale=1.0,
+        )
+
+        # Privileged info term: Base external wrench, 6 Dim
+        # 基座外部力/力矩（域随机化量），由 randomize_apply_external_force_torque 设置
+        # 需要在子类中配置 body_names 为基座名称
+        base_external_wrench = ObsTerm(
+            func=mdp.base_external_wrench,
+            params={"asset_cfg": SceneEntityCfg("robot", body_names=["base"])},
+            clip=(-100.0, 100.0),
+            scale=1.0,
+        )
+
+        # Privileged info term: Base external push velocity, 6 Dim
+        # 基座外部推动速度（域随机化量），由 push_by_setting_velocity 设置
+        # 返回当前根速度（包含推动扰动）
+        # 需要在子类中配置 body_names 为基座名称（虽然函数内部读取的是 root_vel_w）
+        base_external_push_velocity = ObsTerm(
+            func=mdp.base_external_push_velocity,
+            params={"asset_cfg": SceneEntityCfg("robot", body_names=["base"])},
+            clip=(-10.0, 10.0),
+            scale=1.0,
+        )
+
+        # Privileged info term: Base mass disturbance, 1 Dim
+        # 基座质量扰动（域随机化量），由 randomize_rigid_body_mass 设置
+        # 返回当前质量与默认质量的差值
+        # 需要在子类中配置 body_names 为基座名称
+        base_mass_disturbance = ObsTerm(
+            func=mdp.base_mass_disturbance,
+            params={"asset_cfg": SceneEntityCfg("robot", body_names=["base"])},
+            clip=(-10.0, 10.0),
+            scale=1.0,
+        )
+
+        # Privileged info term: End-effector external wrench, 6 Dim
+        # 末端执行器外部力/力矩（域随机化量），由 randomize_apply_external_force_torque 设置
+        # 需要在子类中配置 body_names 为末端执行器名称
+        ee_external_wrench = ObsTerm(
+            func=mdp.ee_external_wrench,
+            params={"asset_cfg": SceneEntityCfg("robot", body_names=["link6"])},
+            clip=(-100.0, 100.0),
+            scale=1.0,
+        )
+
+        # Privileged info term: End-effector mass disturbance, 1 Dim
+        # 末端执行器质量扰动（域随机化量），由 randomize_rigid_body_mass 设置
+        # 返回当前质量与默认质量的差值
+        # 需要在子类中配置 body_names 为末端执行器名称
+        ee_mass_disturbance = ObsTerm(
+            func=mdp.ee_mass_disturbance,
+            params={"asset_cfg": SceneEntityCfg("robot", body_names=["link6"])},
+            clip=(-10.0, 10.0),
+            scale=1.0,
+        )
+
         # Previous_action_term: 上一步动作, 18 Dim
         actions = ObsTerm(
             func=mdp.last_action,
@@ -410,7 +541,7 @@ class ObservationsCfg:
         )
 
         def __post_init__(self):
-            self.enable_corruption = True   # policy 加噪声，有一些观测项不加噪声如 velocity_commands、gait_commands等
+            self.enable_corruption = False   # policy 加噪声，有一些观测项不加噪声如 velocity_commands、gait_commands等
             self.concatenate_terms = True
 
     @configclass
@@ -1007,6 +1138,24 @@ class RewardsCfg:
                         "RR_calf_joint"]),
         },
     )
+    robot_joint_pos_limits = RewTerm(
+        func=mdp.joint_pos_limits, 
+        weight=0.0, 
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=[
+                        "FL_hip_joint",
+                        "FL_thigh_joint",
+                        "FL_calf_joint",
+                        "FR_hip_joint",
+                        "FR_thigh_joint",
+                        "FR_calf_joint",
+                        "RL_hip_joint",
+                        "RL_thigh_joint",
+                        "RL_calf_joint",
+                        "RR_hip_joint",
+                        "RR_thigh_joint",
+                        "RR_calf_joint"]),
+        }
+    )
     # # 不动惩罚：有速度命令但不动时惩罚
     # velocity_mismatch_penalty = RewTerm(
     #     func=mdp.velocity_mismatch_penalty,
@@ -1073,7 +1222,20 @@ class RewardsCfg:
             "asset_cfg": SceneEntityCfg("robot", joint_names=["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]),
         },
     )
-
+    arm_joint_pos_limits = RewTerm(
+        func=mdp.joint_pos_limit_margin_penalty,
+        weight=0.0, 
+        params={
+            "asset_cfg": SceneEntityCfg("robot", joint_names=["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]),
+            # Continuous near-limit barrier (soft constraint): penalize proximity to limits rather than only violations.
+            "margin_ratio": 0.10,   # “近限位区间”占关节总行程的比例
+            "min_margin": 0.10,     # 近限位区间的最小宽度（单位 rad）
+            "max_penalty_per_joint": 1.0,   # 单个关节惩罚的上限（标量）。每个关节靠近限位时惩罚会增长，但不会超过这个值
+            "oob_scale": 1.0,       # 越界惩罚强度（按越界量的平方增长）
+            "max_oob_penalty_per_joint": 10.0,  # 越界惩罚每关节上限（避免数值爆炸）
+            "use_soft_limits": False,
+        }
+    )
     ##############################################################################################################################
     # contact
     feet_contact_rough = RewTerm(

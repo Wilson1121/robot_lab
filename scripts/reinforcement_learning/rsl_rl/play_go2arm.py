@@ -56,6 +56,13 @@ parser.add_argument(
     default=False,
     help="Drive joints toward default pose to test standing stability.",
 )
+parser.add_argument(
+    "--ee_command_frame",
+    type=str,
+    choices=("base", "control", "cfg"),
+    default="control",
+    help="End-effector twist command frame to use during play. Use 'cfg' to keep env config default.",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -136,7 +143,7 @@ def _disable_randomizations(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | Dir
                 setattr(env_cfg.events, name, None)
 
     if hasattr(env_cfg, "curriculum") and env_cfg.curriculum is not None:
-        for name in ("command_levels_lin_vel", "command_levels_ang_vel", "terrain_levels"):
+        for name in ("ee_twist_command_frame", "command_levels_lin_vel", "command_levels_ang_vel", "terrain_levels"):
             if hasattr(env_cfg.curriculum, name):
                 setattr(env_cfg.curriculum, name, None)
 
@@ -220,6 +227,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     _disable_randomizations(env_cfg)
     if args_cli.fixed_commands:
         _apply_fixed_commands(env_cfg)
+    # IMPORTANT: during training we may switch EE twist command representation via curriculum.
+    # If we disable curriculum for play, the env would revert to the config default (often "base"),
+    # which can mismatch what the trained policy expects (typically "control" after the switch).
+    if (
+        args_cli.ee_command_frame != "cfg"
+        and (not args_cli.fixed_commands)
+        and hasattr(env_cfg, "commands")
+        and getattr(env_cfg.commands, "ee_twist", None) is not None
+    ):
+        env_cfg.commands.ee_twist.command_frame = args_cli.ee_command_frame
+    if hasattr(env_cfg, "commands") and hasattr(env_cfg.commands, "ee_twist"):
+        env_cfg.commands.ee_twist.debug_vis = True
 
     if args_cli.keyboard:
         env_cfg.scene.num_envs = 1
@@ -334,6 +353,22 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # reset environment
     obs = env.get_observations()
     timestep = 0
+    debug_every = 200
+    debug_step = 0
+    arm_slice = None
+    arm_term = None
+    arm_joint_ids = None
+    base_env = env.unwrapped
+    if hasattr(base_env, "action_manager"):
+        start = 0
+        for name, term in base_env.action_manager._terms.items():
+            dim = term.action_dim
+            if name == "arm":
+                arm_slice = slice(start, start + dim)
+                arm_term = term
+                arm_joint_ids = term._joint_ids
+                break
+            start += dim
     # simulate environment
     while simulation_app.is_running():
         start_time = time.time()
@@ -350,6 +385,113 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             obs, _, dones, _ = env.step(actions)
             # reset recurrent states for episodes that have terminated
             policy_nn.reset(dones)
+            debug_step += 1
+            if debug_step % debug_every == 0:
+                if arm_slice is not None:
+                    arm_actions = actions[:, arm_slice]
+                    arm_act_mean = arm_actions.abs().mean(dim=0).tolist()
+                    if arm_joint_ids is not None:
+                        asset = base_env.scene["robot"]
+                        arm_pos = asset.data.joint_pos[:, arm_joint_ids]
+                        arm_tgt = asset.data.joint_pos_target[:, arm_joint_ids]
+                        pos_mean = arm_pos.mean(dim=0).tolist()
+                        tgt_delta = (arm_tgt - arm_pos).abs().mean(dim=0).tolist()
+                        if not hasattr(asset.data, "_arm_prev_pos"):
+                            asset.data._arm_prev_pos = arm_pos.clone()
+                        delta_pos = (arm_pos - asset.data._arm_prev_pos).abs().mean(dim=0).tolist()
+                        asset.data._arm_prev_pos.copy_(arm_pos)
+                        print(
+                            "[DEBUG] arm by joint (1-6) |act|_mean="
+                            f"{[round(v, 4) for v in arm_act_mean]}"
+                        )
+                        print(
+                            "[DEBUG] arm by joint (1-6) pos_mean="
+                            f"{[round(v, 4) for v in pos_mean]},"
+                            " |tgt-pos|_mean="
+                            f"{[round(v, 4) for v in tgt_delta]},"
+                            " |dpos|_mean="
+                            f"{[round(v, 6) for v in delta_pos]}"
+                        )
+                        try:
+                            # env0 raw values for diagnosing stuck joints / torque saturation
+                            env0 = 0
+                            arm_pos0 = arm_pos[env0]
+                            arm_tgt0 = arm_tgt[env0]
+                            arm_err0 = arm_tgt0 - arm_pos0
+                            arm_vel0 = asset.data.joint_vel[env0, arm_joint_ids]
+                            arm_tau0 = asset.data.applied_torque[env0, arm_joint_ids]
+                            arm_lim0 = asset.data.joint_pos_limits[env0, arm_joint_ids]
+                            print(
+                                "[DEBUG] arm env0 pos="
+                                f"{[round(v, 4) for v in arm_pos0.tolist()]}"
+                                f" tgt={['{:.4f}'.format(v) for v in arm_tgt0.tolist()]}"
+                            )
+                            print(
+                                "[DEBUG] arm env0 err="
+                                f"{[round(v, 4) for v in arm_err0.tolist()]}"
+                                f" vel={['{:.4f}'.format(v) for v in arm_vel0.tolist()]}"
+                                f" tau={['{:.2f}'.format(v) for v in arm_tau0.tolist()]}"
+                            )
+                            print(
+                                "[DEBUG] arm env0 lim_lo="
+                                f"{[round(v, 4) for v in arm_lim0[:, 0].tolist()]}"
+                                " lim_hi="
+                                f"{[round(v, 4) for v in arm_lim0[:, 1].tolist()]}"
+                            )
+                        except Exception as exc:
+                            print(f"[DEBUG] arm env0 details skipped: {exc}")
+                else:
+                    print("[DEBUG] arm action slice not found")
+                try:
+                    ee_cmd = base_env.command_manager.get_command("ee_twist")
+                    lin_norm_env0 = torch.norm(ee_cmd[0, 0:3]).item()
+                    ang_norm_env0 = torch.norm(ee_cmd[0, 3:6]).item()
+                    lin_norm_mean = torch.norm(ee_cmd[:, 0:3], dim=-1).mean().item()
+                    ang_norm_mean = torch.norm(ee_cmd[:, 3:6], dim=-1).mean().item()
+                    print(
+                        "[DEBUG] ee_twist cmd lin_norm"
+                        f" env0={lin_norm_env0:.4f}, mean={lin_norm_mean:.4f};"
+                        f" ang_norm env0={ang_norm_env0:.4f}, mean={ang_norm_mean:.4f}"
+                    )
+
+                    # Extra diagnostics: show goal distance in task frame (env0 + mean)
+                    try:
+                        term = base_env.command_manager.get_term("ee_twist")
+                        ee_pos_t, _ = term._get_body_pose_t(term._ee_body_index)
+                        goal_pos_t = term._goal_pos_t
+                        dist_task = torch.norm(goal_pos_t - ee_pos_t, dim=-1)
+                        dur0 = float(term._traj_duration[0].item()) if hasattr(term, "_traj_duration") else float("nan")
+                        local0 = bool(term._use_local[0].item()) if hasattr(term, "_use_local") else False
+                        t0 = float(term._traj_time[0].item()) if hasattr(term, "_traj_time") else float("nan")
+                        v_pred0 = (dist_task[0].item() / dur0) if (local0 and dur0 > 0) else float("nan")
+                        print(
+                            "[DEBUG] ee goal dist_task env0="
+                            f"{dist_task[0].item():.4f}, mean={dist_task.mean().item():.4f},"
+                            f" dur0={dur0:.3f}s, t0={t0:.3f}s, local0={local0},"
+                            f" v_pred0={v_pred0:.4f}, frame={getattr(term, 'command_frame', 'n/a')}"
+                        )
+                    except Exception as exc:
+                        print(f"[DEBUG] ee goal dist_task skipped: {exc}")
+
+                    # Extra diagnostics: check whether arm links are registering contacts (env0)
+                    try:
+                        contact_sensor = base_env.scene.sensors.get("contact_forces")
+                        if contact_sensor is not None:
+                            arm_link_names = ["link1", "link2", "link3", "link4", "link5", "link6"]
+                            body_ids = [contact_sensor.body_names.index(n) for n in arm_link_names if n in contact_sensor.body_names]
+                            if body_ids:
+                                forces = contact_sensor.data.net_forces_w_history[:, :, body_ids, :]
+                                max_norm = forces.norm(dim=-1).max(dim=1)[0]  # (num_envs, num_bodies)
+                                env0 = max_norm[0].tolist()
+                                n_contact_env0 = int((max_norm[0] > 1.0).sum().item())
+                                print(
+                                    "[DEBUG] arm contact max|F| env0="
+                                    f"{[round(v, 3) for v in env0]} (>{1.0}N count={n_contact_env0})"
+                                )
+                    except Exception as exc:
+                        print(f"[DEBUG] arm contact check skipped: {exc}")
+                except Exception:
+                    print("[DEBUG] ee_twist command not available")
         if args_cli.video:
             timestep += 1
             # Exit the play loop after recording one video
