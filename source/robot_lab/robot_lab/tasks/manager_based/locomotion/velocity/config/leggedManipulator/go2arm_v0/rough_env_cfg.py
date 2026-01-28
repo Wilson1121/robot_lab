@@ -1,6 +1,6 @@
 # Copyright (c) 2024-2025 Ziqi Fan
 # SPDX-License-Identifier: Apache-2.0
-
+import math
 from isaaclab.utils import configclass
 
 # from isaaclab_nhb.terrain.config.rough import ROUGH_TERRAINS_SIMPLE_CFG
@@ -162,7 +162,8 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         # ------------------------------Rewards------------------------------
         # 父类LocomotionVelocityRoughEnvCfg里已经定义了一些reward term，默认权重为0，这里修改其权重和参数
         # loco
-        self.rewards.base_linear_velocity.weight = 2.0  # 2.0->10.0
+        self.rewards.base_linear_velocity.weight = 10.0  # 2.0->10.0
+        self.rewards.base_linear_velocity.params["std"] = math.sqrt(0.04)  # 减小std，提高速度跟踪精度要求
         # self.rewards.base_linear_velocity.weight = 5.0
         self.rewards.base_angular_velocity.weight = 2.0
         self.rewards.torso_height.weight = 0.5  
@@ -177,14 +178,20 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.rewards.robot_action_rate.weight = 0.001 
         self.rewards.robot_joint_torque.weight = 1e-5
         self.rewards.robot_joint_velocity.weight = 1e-4  
-        # self.rewards.velocity_mismatch_penalty.weight = -2.0  # 不动惩罚：有速度命令但不动时惩罚
+        # Not-moving penalty: command present but robot doesn't move.
+        # self.rewards.velocity_mismatch_penalty.weight = -1.0
+        # self.rewards.velocity_mismatch_penalty.params["command_threshold"] = 0.05
+        # self.rewards.velocity_mismatch_penalty.params["velocity_threshold"] = 0.05
         # mani
-        self.rewards.ee_position.weight = 10.0
-        self.rewards.ee_orientation.weight = 8.0
+        self.rewards.ee_position.weight = 8.0
+        self.rewards.ee_position.params["std"] = math.sqrt(0.0004)  # 减小std，提高位置精度要求
+        self.rewards.ee_orientation.weight = 4.0
+        self.rewards.ee_orientation.params["std"] = math.sqrt(0.01)  # 减小std，提高姿态精度要求
         self.rewards.undesired_arm_contacts.weight = -1.0
-        self.rewards.arm_action_rate.weight = 0.1
+        self.rewards.arm_action_rate.weight = 0.001  # reduce arm action rate：0.1->0.001
         self.rewards.arm_joint_torques.weight = 1e-5
         self.rewards.arm_joint_velocities.weight = 1e-4
+        self.rewards.arm_joint_pos_limits.weight = -1.0  # 新增机械臂关节位置极限惩罚
         # contact
         self.rewards.feet_contact_rough.weight = 1.0
         self.rewards.feet_air_time_variance.weight = -1.0
@@ -208,8 +215,8 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
                 "undesired_robot_contacts",
                 "robot_action_rate",
                 "robot_joint_torque",
-                "robot_joint_velocity"
-                # "velocity_mismatch_penalty"     # 新增不动惩罚
+                "robot_joint_velocity",
+                # "velocity_mismatch_penalty",
             ],
             "mani": [
                 "ee_position",
@@ -217,7 +224,8 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
                 "undesired_arm_contacts",
                 "arm_action_rate",
                 "arm_joint_torques",
-                "arm_joint_velocities"
+                "arm_joint_velocities",
+                "arm_joint_pos_limits"
             ],
             "contact": [
                 "feet_contact_rough",
@@ -246,8 +254,8 @@ class UnitreeGo2ArmRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         # ------------------------------Commands------------------------------
         # 论文 Table 7: 速度命令范围 (单位: m/s, rad/s)
         # lin_vel_x: [-0.25, 0.25], lin_vel_y: [-0.25, 0.25], ang_vel_z: [-0.25, 0.25]
-        self.commands.base_velocity.ranges.lin_vel_x = (-0.5, 0.5)
+        self.commands.base_velocity.ranges.lin_vel_x = (-0.4, 0.4)
         self.commands.base_velocity.ranges.lin_vel_y = (-0.2, 0.2)
         self.commands.base_velocity.ranges.ang_vel_z = (-0.2, 0.2)
 
-        self.commands.ee_twist.local_trajectory_probability = 0.8
+        self.commands.ee_twist.local_trajectory_probability = 0.2

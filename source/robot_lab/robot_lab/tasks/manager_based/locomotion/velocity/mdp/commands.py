@@ -188,8 +188,12 @@ class UniformThresholdVelocityCommand(mdp.UniformVelocityCommand):
         if isinstance(env_ids, torch.Tensor):
             env_ids = env_ids.tolist()
         super()._resample_command(env_ids)
-        # set small commands to zero
-        self.vel_command_b[env_ids, :2] *= (torch.norm(self.vel_command_b[env_ids, :2], dim=1) > 0.2).unsqueeze(1)
+        # Set small commands to zero (optional).
+        lin_vel_threshold = float(getattr(self.cfg, "lin_vel_threshold", 0.2))
+        if lin_vel_threshold > 0.0:
+            self.vel_command_b[env_ids, :2] *= (
+                torch.norm(self.vel_command_b[env_ids, :2], dim=1) > lin_vel_threshold
+            ).unsqueeze(1)
 
     def _update_command(self):
         """Update commands and apply terrain-aware restrictions in real-time.
@@ -235,6 +239,8 @@ class UniformThresholdVelocityCommandCfg(mdp.UniformVelocityCommandCfg):
     """Configuration for the uniform threshold velocity command generator."""
 
     class_type: type = UniformThresholdVelocityCommand
+    # Set linear velocity commands with ||v_xy|| <= threshold to zero. Set <= 0 to disable.
+    lin_vel_threshold: float = 0.2
 
 
 class DiscreteCommandController(CommandTerm):

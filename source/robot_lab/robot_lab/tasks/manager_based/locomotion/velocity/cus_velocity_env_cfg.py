@@ -147,6 +147,7 @@ class CommandsCfg:
         asset_name="robot",
         # resampling_time_range=(10.0, 10.0),
         resampling_time_range=(12.0, 15.0),
+        lin_vel_threshold=0.02,
         rel_standing_envs=0.02,
         rel_heading_envs=1.0,
         heading_command=False,
@@ -174,26 +175,26 @@ class CommandsCfg:
     # )
     ee_twist = mdp.EndEffectorTwistTrajectoryCommandCfg(
         asset_name="robot",
-        resampling_time_range=(12.0, 15.0),
+        resampling_time_range=(6.0, 8.0),
         ee_body_name="link6",
         torso_body_name="base",
         shoulder_body_name="link2",
         # Make goal sampling more reachable for Go2Arm:
         # sample around shoulder, but accept only a forward/up-ish offset box.
-        position_sphere_radius=0.4,
-        goal_offset_range=(0.10, 0.4, -0.30, 0.30, 0.0, 0.3),    # 相对于肩部的(xmin, xmax, ymin, ymax, zmin, zmax)
+        position_sphere_radius=0.45,
+        goal_offset_range=(0.08, 0.32, -0.25, 0.25, 0.05, 0.40),    # 相对于肩部的(xmin, xmax, ymin, ymax, zmin, zmax)
         reject_cuboid=(-0.25, 0.25, -0.16, 0.16, -0.08, 0.20),
         max_sampling_tries=128,
         orientation_perturb_bound = math.pi / 12.0,
-        trajectory_duration_range=(10.0, 12.0),
+        trajectory_duration_range=(1.0, 2.0),
         local_trajectory_probability=0.5,
         command_frame="base",
         # 新增：FF+FB 反馈增益（单位约 1/s）
-        ee_pos_kp=2.0,
-        ee_rot_kp=4.0,
+        ee_pos_kp=4.0,
+        ee_rot_kp=6.0,
         # 新增：物理饱和（<=0 表示关闭）
-        ee_ang_vel_max=8.0,   # rad/s，建议先保持 6~10
-        ee_lin_vel_max=0.0,   # m/s，不想限制线速度就保持 0
+        ee_ang_vel_max=12.0,   # rad/s，建议先保持 6~10
+        ee_lin_vel_max=3.0,   # m/s，不想限制线速度就保持 0
     )
     # 足端摆动高度命令（论文 Eq. (5)）
     feet_swing_height = mdp.DesiredFeetSwingHeightCommandCfg(
@@ -246,7 +247,8 @@ class ActionsCfg:
             "RR_calf_joint"
         ],
         # 经验：交叉腿常由髋外展/内收关节过大动作引起，单独降低 hip 的 scale 更有效
-        scale={".*_hip_joint": 0.08, "^(?!.*_hip_joint).*": 0.25},  # 降低 hip 关节的 scale后，机器人不趴地
+        # scale={".*_hip_joint": 0.08, "^(?!.*_hip_joint).*": 0.25},  # 降低 hip 关节的 scale后，机器人不趴地
+        scale={".*_hip_joint": 0.2, "^(?!.*_hip_joint).*": 0.4},  # 降低 hip 关节的 scale后，机器人不趴地
         use_zero_offset=True,
         preserve_order=True,
     )
@@ -263,10 +265,13 @@ class ActionsCfg:
         # Per-joint action scaling (rad/step for |action|=1.0 in relative position mode).
         # Increase joint2/joint3 to make reaching easier (they contribute most to arm extension).
         # Note: changing scales is NOT compatible with already-trained checkpoints.
-        scale={
-            r"^joint2$": 0.50,
-            r"^joint3$": 0.50,
-            r"^(?!joint[23]$).*": 0.20,
+        scale = {
+            r"^joint2$": 0.16,  # 鼓励抬/伸
+            r"^joint3$": 0.16,  # 鼓励抬/伸
+            r"^joint4$": 0.12,  # 适中
+            r"^joint1$": 0.10,  # 基准
+            r"^joint5$": 0.06,  # 你经常顶 joint5，就先压低
+            r"^joint6$": 0.06,  # 按 URDF 3rad/s 的基准
         },
         use_zero_offset=True,
         preserve_order=True,
@@ -1131,14 +1136,14 @@ class RewardsCfg:
                         "RR_calf_joint"]),
         },
     )
-    # # 不动惩罚：有速度命令但不动时惩罚
+    # Not-moving penalty: command present but robot doesn't move (set weight < 0 to enable).
     # velocity_mismatch_penalty = RewTerm(
     #     func=mdp.velocity_mismatch_penalty,
-    #     weight=0.0,  # 负权重，作为惩罚
+    #     weight=0.0,
     #     params={
     #         "command_name": "base_velocity",
-    #         "command_threshold": 0.1,   # 速度命令阈值
-    #         "velocity_threshold": 0.05, # 实际速度阈值
+    #         "command_threshold": 0.1,
+    #         "velocity_threshold": 0.05,
     #         "asset_cfg": SceneEntityCfg("robot"),
     #     },
     # )
@@ -1195,6 +1200,13 @@ class RewardsCfg:
         params={
             "std": math.sqrt(4.0),
             "asset_cfg": SceneEntityCfg("robot", joint_names=["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]),
+        },
+    )
+    arm_joint_pos_limits = RewTerm(
+        func=mdp.joint_pos_limits, 
+        weight=0.0, 
+        params={
+            "asset_cfg": SceneEntityCfg("robot", joint_names=["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"])
         },
     )
 

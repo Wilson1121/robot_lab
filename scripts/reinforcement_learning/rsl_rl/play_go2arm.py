@@ -51,6 +51,18 @@ parser.add_argument(
     help="Force zero actions to test passive standing stability.",
 )
 parser.add_argument(
+    "--zero-legs",
+    action="store_true",
+    default=False,
+    help="Force leg actions to zero (keep arm actions) to test arm tracking when the base is unsupported.",
+)
+parser.add_argument(
+    "--zero-arm",
+    action="store_true",
+    default=False,
+    help="Force arm actions to zero (keep leg actions) to isolate locomotion behavior.",
+)
+parser.add_argument(
     "--hold-default",
     action="store_true",
     default=False,
@@ -93,6 +105,12 @@ parser.add_argument(
     help="Force locomotion commands to zero (keep EE commands) for easier arm motion inspection.",
 )
 parser.add_argument(
+    "--no-ee-task",
+    action="store_true",
+    default=False,
+    help="Disable EE task conditioning during play by zeroing the ee_twist command observations (policy/critic). Useful to isolate base command tracking.",
+)
+parser.add_argument(
     "--keep-disturbances",
     action="store_true",
     default=False,
@@ -109,6 +127,31 @@ parser.add_argument(
     type=float,
     default=0.0,
     help="Margin (rad) above joint2 soft lower limit to start applying --joint2-bias.",
+)
+parser.add_argument(
+    "--no-terminate",
+    action="store_true",
+    default=False,
+    help="Disable common termination terms (bad_orientation/illegal_contact/time_out) to keep the episode running for debugging.",
+)
+parser.add_argument(
+    "--freeze-ee-goal",
+    action="store_true",
+    default=False,
+    help="Freeze EE goal sampling by setting ee_twist.resampling_time_range to a very large value (prevents goal from changing).",
+)
+parser.add_argument(
+    "--ee-command-frame",
+    type=str,
+    default="base",
+    choices=("base", "control"),
+    help="Override EE twist command frame ('base' or 'control') for play. Default: base.",
+)
+parser.add_argument(
+    "--manual-action-clip",
+    action="store_true",
+    default=False,
+    help="Manually clamp actions to [-clip_actions, clip_actions] before stepping the env (useful to verify clipping behavior).",
 )
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
@@ -228,6 +271,29 @@ def _apply_fixed_commands(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | Direc
             )
 
 
+def _disable_ee_task_observations(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg) -> None:
+    """Disable EE task conditioning for the policy/critic by zeroing ee_twist command observations."""
+    if not hasattr(env_cfg, "observations"):
+        return
+    if hasattr(env_cfg.observations, "policy"):
+        env_cfg.observations.policy.ee_twist_command = ObsTerm(
+            func=lambda env: torch.zeros((env.num_envs, 13), device=env.device),
+        )
+    if hasattr(env_cfg.observations, "critic"):
+        env_cfg.observations.critic.ee_twist_command = ObsTerm(
+            func=lambda env: torch.zeros((env.num_envs, 13), device=env.device),
+        )
+
+
+def _disable_terminations(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg) -> None:
+    """Disable common termination terms so the episode doesn't reset while debugging (e.g. after a fall)."""
+    if not hasattr(env_cfg, "terminations") or env_cfg.terminations is None:
+        return
+    for name in ("bad_orientation", "illegal_contact", "time_out"):
+        if hasattr(env_cfg.terminations, name):
+            setattr(env_cfg.terminations, name, None)
+
+
 def _compute_hold_default_actions(env: RslRlVecEnvWrapper) -> torch.Tensor:
     """Compute actions that drive joints to default positions for relative position control."""
     base_env = env.unwrapped
@@ -324,6 +390,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     if args_cli.fixed_commands:
         _apply_fixed_commands(env_cfg)
 
+    if args_cli.no_terminate:
+        _disable_terminations(env_cfg)
+
     if args_cli.stand_still and hasattr(env_cfg, "commands") and env_cfg.commands is not None:
         # Keep EE commands but stop the base from being commanded to move.
         if hasattr(env_cfg.commands, "base_velocity"):
@@ -332,6 +401,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             env_cfg.commands.base_velocity.ranges.ang_vel_z = (0.0, 0.0)
         if hasattr(env_cfg.commands, "feet_swing_height"):
             env_cfg.commands.feet_swing_height.max_height = 0.0
+
+    if args_cli.no_ee_task:
+        _disable_ee_task_observations(env_cfg)
 
     if args_cli.ee_fast and hasattr(env_cfg, "commands") and hasattr(env_cfg.commands, "ee_twist"):
         # Make the commanded EE motion more visible in play.
@@ -362,6 +434,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             env_cfg.commands.ee_twist.debug_vis = bool(args_cli.goal_vis)
         except Exception:
             pass
+        # Override EE command frame for play.
+        try:
+            env_cfg.commands.ee_twist.command_frame = str(args_cli.ee_command_frame)
+        except Exception:
+            pass
+        if args_cli.freeze_ee_goal:
+            try:
+                env_cfg.commands.ee_twist.resampling_time_range = (1.0e9, 1.0e9)
+            except Exception:
+                pass
         if args_cli.debug:
             try:
                 ee_cfg = env_cfg.commands.ee_twist
@@ -481,11 +563,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         print(
             f"        fixed_commands={args_cli.fixed_commands} zero_actions={args_cli.zero_actions} hold_default={args_cli.hold_default}"
         )
+        print(f"        zero_legs={args_cli.zero_legs} zero_arm={args_cli.zero_arm} manual_action_clip={args_cli.manual_action_clip}")
+        print(f"        ee_command_frame={args_cli.ee_command_frame}")
+        print(f"        no_ee_task={args_cli.no_ee_task}")
         print(
             f"        goal_vis={args_cli.goal_vis} ee_fast={args_cli.ee_fast} keep_disturbances={args_cli.keep_disturbances} keyboard={args_cli.keyboard}"
         )
         if action_slices:
             print(f"[DEBUG] Action term slices: {action_slices}")
+        try:
+            print(f"[DEBUG] agent_cfg.clip_actions={getattr(agent_cfg, 'clip_actions', None)}")
+        except Exception:
+            pass
         if hasattr(base_env, "command_manager") and hasattr(base_env.command_manager, "_terms"):
             try:
                 print(f"[DEBUG] Command terms: {list(base_env.command_manager._terms.keys())}")
@@ -540,6 +629,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # reset environment
     obs = env.get_observations()
     timestep = 0
+    last_actions_raw = None
+    last_actions_used = None
+    last_dones = None
     joint2_bias_last = None
     joint2_bias_q2_last = None
     joint2_bias_lo_last = None
@@ -552,11 +644,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         with torch.inference_mode():
             # agent stepping
             if args_cli.zero_actions:
-                actions = torch.zeros(env.num_envs, env.num_actions, device=env.unwrapped.device)
+                actions_raw = torch.zeros(env.num_envs, env.num_actions, device=env.unwrapped.device)
             elif args_cli.hold_default:
-                actions = _compute_hold_default_actions(env)
+                actions_raw = _compute_hold_default_actions(env)
             else:
-                actions = policy(obs)
+                actions_raw = policy(obs)
+
+            actions = actions_raw
+            # Optional action masking for diagnostics.
+            if args_cli.zero_legs and "legs" in action_slices:
+                actions[:, action_slices["legs"]] = 0.0
+            if args_cli.zero_arm and "arm" in action_slices:
+                actions[:, action_slices["arm"]] = 0.0
 
             # Play-only debug: rescue joint2 if policy drives it into one-sided lower limit.
             joint2_bias_last = None
@@ -591,8 +690,19 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     joint2_bias_lo_last = lo.clone()
                     joint2_bias_a2_before_last = a2_before
                     joint2_bias_a2_after_last = a2_after
+            # Optional manual clipping (RslRlVecEnvWrapper may already clip).
+            if args_cli.manual_action_clip and getattr(agent_cfg, "clip_actions", None) is not None:
+                try:
+                    clip = float(agent_cfg.clip_actions)
+                    if clip > 0.0:
+                        actions = torch.clamp(actions, min=-clip, max=clip)
+                except Exception:
+                    pass
             # env stepping
             obs, _, dones, _ = env.step(actions)
+            last_actions_raw = actions_raw
+            last_actions_used = actions
+            last_dones = dones
             # reset recurrent states for episodes that have terminated
             policy_nn.reset(dones)
 
@@ -612,6 +722,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 cmd_ee = None
 
             print(f"[DEBUG] step={timestep} env={env_id}")
+            try:
+                if last_dones is not None:
+                    done = bool(last_dones[env_id].item())
+                    print(f"        done={int(done)}")
+                    if done:
+                        print("        note: env reset -> commands/goals may resample and goal marker can jump")
+            except Exception:
+                pass
             if robot is not None:
                 try:
                     if base_body_id is not None:
@@ -625,6 +743,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                         print(f"        base_z={base_z:.3f} proj_g={_format_vec(pg,3)}")
                     else:
                         print(f"        base_z={base_z:.3f}")
+                    try:
+                        if hasattr(robot.data, "root_lin_vel_b") and hasattr(robot.data, "root_ang_vel_b"):
+                            vxy_b = robot.data.root_lin_vel_b[env_id, 0:2]
+                            wz_b = robot.data.root_ang_vel_b[env_id, 2]
+                            print(f"        base_vel vxy={_format_vec(vxy_b,2)} wz={float(wz_b.item()): .3f}")
+                    except Exception:
+                        pass
                     if arm_joint_ids:
                         q = robot.data.joint_pos[env_id, arm_joint_ids]
                         qd = robot.data.joint_vel[env_id, arm_joint_ids]
@@ -684,10 +809,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 )
                 print(f"        ee_goal_p={_format_vec(goal_p,3)}")
             try:
-                a = actions[env_id]
-                print(
-                    f"        action |a|={float(torch.norm(a).item()):.3f} mean|a|={float(torch.mean(torch.abs(a)).item()):.3f}"
+                a = last_actions_used[env_id] if last_actions_used is not None else actions[env_id]
+                a_raw = last_actions_raw[env_id] if last_actions_raw is not None else None
+                msg = (
+                    f"        action_used |a|={float(torch.norm(a).item()):.3f} mean|a|={float(torch.mean(torch.abs(a)).item()):.3f}"
                 )
+                if a_raw is not None:
+                    msg += (
+                        f" |a_raw|={float(torch.norm(a_raw).item()):.3f} mean|a_raw|={float(torch.mean(torch.abs(a_raw)).item()):.3f}"
+                    )
+                print(msg)
                 if "arm" in action_slices:
                     arm_a = a[action_slices["arm"]]
                     print(

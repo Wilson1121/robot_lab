@@ -7,6 +7,8 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, R
 
 @configclass
 class UnitreeGo2ArmRoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
+    # Clip policy actions inside RslRlVecEnvWrapper (recommended for relative joint control).
+    clip_actions = 1.0  # 将其限制在 [-1.0, 1.0] 范围内
     # 每个环境每次更新前收集的步数。值越小更新频率越高，但样本利用率低；值越大样本利用率高但更新滞后
     num_steps_per_env = 24  
     # 最大迭代次数。值越大训练时间越长，通常能获得更好的性能但收益递减
